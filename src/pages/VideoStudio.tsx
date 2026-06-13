@@ -707,35 +707,61 @@ export default function VideoStudio() {
 
           {mainTab === 'Cinema Studio' ? (
             <section className="relative overflow-hidden rounded-[24px] bg-[#0b0d0f] lg:min-h-[720px]">
-              {/* Ambient glow */}
-              <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d7ff00]/[0.04] blur-[120px]" />
-              </div>
 
-              {/* Hero area */}
-              <div className="flex flex-col items-center justify-center px-6 pb-52 pt-16 text-center lg:pt-24">
-                {/* Stacked video cards */}
-                <div className="relative mb-10 h-48 w-72 sm:h-52 sm:w-80">
-                  {/* Back card */}
-                  <div className="absolute inset-0 -rotate-6 scale-90 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/50">
-                    <img src="https://picsum.photos/seed/cinema1/640/360" alt="" className="h-full w-full object-cover opacity-60" />
+              {cinemaInputMode === 'Video' ? (
+                /* ── STORYBOARD LAYOUT (Video mode) ── */
+                <div className="flex flex-col gap-4 p-4 pb-[140px] lg:p-6 lg:pb-[140px]">
+                  {/* Preview canvas */}
+                  <div className="flex min-h-[260px] flex-1 items-center justify-center rounded-2xl border border-white/8 bg-[#141618] lg:min-h-[320px]">
+                    <div className="flex flex-col items-center gap-3 text-slate-600">
+                      <FileVideo className="h-10 w-10" />
+                      <span className="text-xs font-bold">Preview</span>
+                    </div>
                   </div>
-                  {/* Middle card */}
-                  <div className="absolute inset-0 rotate-3 scale-95 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/50">
-                    <img src="https://picsum.photos/seed/cinema2/640/360" alt="" className="h-full w-full object-cover opacity-75" />
-                  </div>
-                  {/* Front card */}
-                  <div className="absolute inset-0 overflow-hidden rounded-2xl border border-white/15 bg-[#1a1c1f] shadow-2xl shadow-black/70">
-                    <img src="https://picsum.photos/seed/cinema3/640/360" alt="" className="h-full w-full object-cover" />
+
+                  {/* 4 × 2 clip grid */}
+                  <div className="grid grid-cols-4 gap-2 sm:gap-3">
+                    {(['1:1', '1:2', '2:1', '2:2', '3:1', '3:2', '4:1', '4:2'] as const).map((label) => (
+                      <div key={label} className="flex flex-col gap-1.5">
+                        <div className="flex aspect-video items-center justify-center rounded-xl border border-white/8 bg-[#141618]">
+                          <FileVideo className="h-5 w-5 text-white/15" />
+                        </div>
+                        <p className="text-center text-[10px] font-bold text-slate-500">{label}</p>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-center rounded-lg border border-white/8 bg-white/[0.04] py-1 transition hover:bg-white/[0.08]"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-slate-400" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                {/* Headline */}
-                <h2 className="max-w-2xl text-4xl font-black uppercase leading-[0.92] tracking-tight text-white sm:text-5xl lg:text-6xl">
-                  Create your first project.{' '}
-                  <span className="text-[#d7ff00]">Generate the impossible.</span>
-                </h2>
-              </div>
+              ) : (
+                /* ── HERO LAYOUT (Image mode) ── */
+                <>
+                  <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                    <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d7ff00]/[0.04] blur-[120px]" />
+                  </div>
+                  <div className="flex flex-col items-center justify-center px-6 pb-52 pt-16 text-center lg:pt-24">
+                    <div className="relative mb-10 h-48 w-72 sm:h-52 sm:w-80">
+                      <div className="absolute inset-0 -rotate-6 scale-90 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/50">
+                        <img src="https://picsum.photos/seed/cinema1/640/360" alt="" className="h-full w-full object-cover opacity-60" />
+                      </div>
+                      <div className="absolute inset-0 rotate-3 scale-95 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/50">
+                        <img src="https://picsum.photos/seed/cinema2/640/360" alt="" className="h-full w-full object-cover opacity-75" />
+                      </div>
+                      <div className="absolute inset-0 overflow-hidden rounded-2xl border border-white/15 bg-[#1a1c1f] shadow-2xl shadow-black/70">
+                        <img src="https://picsum.photos/seed/cinema3/640/360" alt="" className="h-full w-full object-cover" />
+                      </div>
+                    </div>
+                    <h2 className="max-w-2xl text-4xl font-black uppercase leading-[0.92] tracking-tight text-white sm:text-5xl lg:text-6xl">
+                      Create your first project.{' '}
+                      <span className="text-[#d7ff00]">Generate the impossible.</span>
+                    </h2>
+                  </div>
+                </>
+              )}
 
               {/* Bottom input bar — fixed to bottom of section */}
               <div className="absolute bottom-0 left-0 right-0 px-4 pb-6 sm:px-8">
