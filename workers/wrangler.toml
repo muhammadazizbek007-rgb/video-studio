@@ -1,0 +1,8 @@
+name = "video-studio-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FIREBASE_PROJECT_ID = "gp-market-f148c"
+VIDEO_STUDIO_ALLOWED_EMAILS = ""

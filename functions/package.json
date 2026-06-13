@@ -1,0 +1,19 @@
+{
+  "name": "gp-market-functions",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "build": "node --check index.js && node --check src/providers/seedanceProvider.js && node --check src/providers/videoProviderTypes.js && node --check src/providers/replicateProvider.js && node --check src/providers/wavespeedProvider.js && node --check src/providers/huggingfaceProvider.js && node --check src/providers/leonardoProvider.js && node --check src/providers/json2videoProvider.js && node --check src/providers/providerFactory.js && node --check src/providers/hfInferenceHelper.js && node --check src/providers/cogVideoXProvider.js && node --check src/providers/ltxVideoProvider.js && node --check src/providers/stableVideoDiffusionProvider.js && node --check src/providers/openSoraProvider.js"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "busboy": "^1.6.0",
+    "firebase-admin": "^13.8.0",
+    "firebase-functions": "^7.2.5",
+    "telegram": "^2.26.22",
+    "xlsx": "^0.18.5"
+  }
+}
