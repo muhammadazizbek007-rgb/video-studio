@@ -119,6 +119,7 @@ export interface VideoGenerationRequest {
   referenceImageUrl?: string;
   referenceVideoUrl?: string;
   referenceAudioUrl?: string;
+  lastFrameImageUrl?: string;
 
   // References — multi
   referenceImageUrls?: string[];
@@ -154,10 +155,12 @@ export interface CreateVideoGenerationInput {
   cameraMotion: CameraMotion;
   // Files
   referenceImageFile?: File | null;
+  lastFrameImageFile?: File | null;
   referenceVideoFile?: File | null;
   referenceAudioFile?: File | null;
-  // URLs (from element resolver)
+  // URLs (from element resolver or direct data URLs)
   referenceImageUrl?: string;
+  lastFrameImageUrl?: string;
   referenceImageUrls?: string[];
   referenceVideoUrl?: string;
   referenceAudioUrl?: string;

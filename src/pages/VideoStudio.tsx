@@ -12,10 +12,15 @@ import {
   FileVideo,
   Folder,
   Heart,
+  Images,
   ImageIcon,
   Loader2,
   Maximize2,
+  Minimize2,
   Pin,
+  Volume2,
+  Volume1,
+  VolumeX,
   PinOff,
   PlayCircle,
   Plus,
@@ -40,6 +45,7 @@ import {
   toggleSavedVideoGeneration,
 } from '../services/firebaseVideoService';
 import { generateVideo } from '../services/videoGenerationService';
+import { callWorker } from '../lib/callWorker';
 import {
   subscribeToUserVideoElements,
   saveVideoElement,
@@ -140,11 +146,40 @@ export default function VideoStudio() {
   const [mainTab, setMainTab] = useState<'Создать видео' | 'История' | 'Как это работает' | 'Cinema Studio' | 'CapCut'>('Создать видео');
   const [capCutPrompt, setCapCutPrompt] = useState('');
   const [capCutInputMode, setCapCutInputMode] = useState<'Image' | 'Video'>('Video');
-  const [cinemaInputMode, setCinemaInputMode] = useState<'Image' | 'Video'>('Image');
+  const [cinemaInputMode, setCinemaInputMode] = useState<'Image' | 'Video'>(
+    () => (sessionStorage.getItem('cinemaInputMode') as 'Image' | 'Video') ?? 'Image'
+  );
   const [cinemaPrompt, setCinemaPrompt] = useState('');
   const [cinemaAspect, setCinemaAspect] = useState('16:9');
   const [cinemaQuality, setCinemaQuality] = useState('2K');
+  const [cinemaDuration, setCinemaDuration] = useState<5 | 10 | 15>(5);
+  const [cinemaModelId, setCinemaModelId] = useState('seedance-2');
+  const [cinemaModelPickerOpen, setCinemaModelPickerOpen] = useState(false);
+  const [cinemaAspectPickerOpen, setCinemaAspectPickerOpen] = useState(false);
+  const [cinemaQualityPickerOpen, setCinemaQualityPickerOpen] = useState(false);
+  const [cinemaDurationPickerOpen, setCinemaDurationPickerOpen] = useState(false);
   const [cinemaSamples, setCinemaSamples] = useState(1);
+  const [slotImages, setSlotImages] = useState<Record<string, string>>({});
+  const slotFileInputRef = useRef<HTMLInputElement | null>(null);
+  const slotVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeSegForVideo, setActiveSegForVideo] = useState('');
+  const [activeSlot, setActiveSlot] = useState<string | null>(null);
+  const [segmentGenerationIds, setSegmentGenerationIds] = useState<Record<string, string>>({});
+  const [segmentVideos, setSegmentVideos] = useState<Record<string, string>>({});
+  const pollIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const [playerSegIdx, setPlayerSegIdx] = useState(0);
+  const [playerPlaying, setPlayerPlaying] = useState(false);
+  const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
+  const [segmentDurations, setSegmentDurations] = useState<Record<string, number>>({});
+  const playerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const completedSegsRef = useRef<string[]>([]);
+  const pendingPlayRef = useRef(false);
+  const playerContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [barHover, setBarHover] = useState<{ pct: number; time: number } | null>(null);
+  const [volumeState, setVolumeState] = useState<'max' | 'medium' | 'mute'>('max');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTab, setMediaPickerTab] = useState('Загрузки');
   const [elementCategoryFilter, setElementCategoryFilter] = useState<'all' | 'pinned' | VideoElementCategory>('all');
@@ -211,6 +246,62 @@ export default function VideoStudio() {
     });
   }, [searchParams]);
 
+  // When a segment generation completes in Firestore, update segmentVideos + stop polling
+  useEffect(() => {
+    for (const [seg, genId] of Object.entries(segmentGenerationIds)) {
+      const gen = generations.find((g) => g.id === genId);
+      if (gen?.status === 'completed' && gen.resultVideoUrl && !segmentVideos[seg]) {
+        setSegmentVideos((prev) => ({ ...prev, [seg]: gen.resultVideoUrl! }));
+        // Stop polling for this segment
+        if (pollIntervalsRef.current[seg]) {
+          clearInterval(pollIntervalsRef.current[seg]);
+          delete pollIntervalsRef.current[seg];
+        }
+      }
+      if (gen?.status === 'failed' && pollIntervalsRef.current[seg]) {
+        clearInterval(pollIntervalsRef.current[seg]);
+        delete pollIntervalsRef.current[seg];
+      }
+    }
+  }, [generations, segmentGenerationIds, segmentVideos]);
+
+  // Apply volume to video element when volumeState changes
+  useEffect(() => {
+    const v = playerVideoRef.current;
+    if (!v) return;
+    if (volumeState === 'max') { v.muted = false; v.volume = 1; }
+    else if (volumeState === 'medium') { v.muted = false; v.volume = 0.5; }
+    else { v.muted = true; v.volume = 0; }
+  }, [volumeState]);
+
+  function cycleVolume() {
+    setVolumeState((s) => s === 'max' ? 'medium' : s === 'medium' ? 'mute' : 'max');
+  }
+
+  // Track fullscreen state changes (e.g. user presses ESC)
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  function toggleFullscreen() {
+    if (!playerContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      void playerContainerRef.current.requestFullscreen();
+    } else {
+      void document.exitFullscreen();
+    }
+  }
+
+  // Poll Replicate status via worker every 6s for active segments
+  function startSegmentPolling(segNum: string, generationId: string) {
+    if (pollIntervalsRef.current[segNum]) clearInterval(pollIntervalsRef.current[segNum]);
+    pollIntervalsRef.current[segNum] = setInterval(() => {
+      void callWorker('checkVideoGeneration', { generationId });
+    }, 6000);
+  }
+
   const canGenerate = useMemo(() => Boolean(prompt.trim()) && Boolean(user), [prompt, user]);
 
   // Elements mentioned in prompt via @handle
@@ -240,6 +331,68 @@ export default function VideoStudio() {
   async function handleAnonymousSignIn() {
     setError('');
     await signInAnonymously(auth);
+  }
+
+  async function runCinemaVideoGeneration() {
+    if (!cinemaPrompt.trim()) return;
+    // Auto sign-in anonymously if needed
+    let activeUser = user;
+    if (!activeUser) {
+      try {
+        const { user: anonUser } = await signInAnonymously(auth);
+        activeUser = anonUser;
+      } catch {
+        setError('Не удалось войти. Обновите страницу.');
+        return;
+      }
+    }
+    setLoading(true);
+    setError('');
+    setNotice('');
+    setCurrentGeneration(null);
+
+    try {
+      async function blobUrlToDataUrl(url: string): Promise<string> {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      // Find which segment to generate: first one that has images but no video and no active generation
+      const targetSeg = Array.from({ length: cinemaSamples }, (_, i) => String(i + 1)).find((seg) =>
+        (slotImages[`${seg}.1`] || slotImages[`${seg}.2`]) &&
+        !segmentVideos[seg] &&
+        !segmentGenerationIds[seg]
+      ) ?? '1';
+
+      const firstFrameUrl = slotImages[`${targetSeg}.1`] ? await blobUrlToDataUrl(slotImages[`${targetSeg}.1`]) : undefined;
+      const lastFrameUrl = slotImages[`${targetSeg}.2`] ? await blobUrlToDataUrl(slotImages[`${targetSeg}.2`]) : undefined;
+      const mode: VideoGenerationMode = firstFrameUrl ? 'image_to_video' : 'text_to_video';
+
+      const generation = await generateVideo(activeUser.uid, {
+        prompt: cinemaPrompt.trim(),
+        modelId: cinemaModelId,
+        mode,
+        aspectRatio: cinemaAspect as VideoAspectRatio,
+        duration: cinemaDuration,
+        stylePreset: 'Cinematic',
+        cameraMotion: 'Static',
+        referenceImageUrl: firstFrameUrl,
+        lastFrameImageUrl: lastFrameUrl,
+      });
+      setCurrentGeneration(generation);
+      setSegmentGenerationIds((prev) => ({ ...prev, [targetSeg]: generation.id }));
+      startSegmentPolling(targetSeg, generation.id);
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : 'Generation failed.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function runGeneration() {
@@ -326,6 +479,115 @@ export default function VideoStudio() {
     if (selectedFile.type.startsWith('video/')) setReferenceVideoFile(selectedFile);
     if (selectedFile.type.startsWith('audio/')) setReferenceAudioFile(selectedFile);
     setMediaPickerOpen(false);
+  }
+
+  function handleSlotImageChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !activeSlot) return;
+    const url = URL.createObjectURL(file);
+    setSlotImages((prev) => ({ ...prev, [activeSlot]: url }));
+    e.target.value = '';
+  }
+
+  function openSlotPicker(label: string) {
+    setActiveSlot(label);
+    slotFileInputRef.current?.click();
+  }
+
+  function handleSlotVideoChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !activeSegForVideo) return;
+    const url = URL.createObjectURL(file);
+    setSegmentVideos((prev) => ({ ...prev, [activeSegForVideo]: url }));
+    e.target.value = '';
+  }
+
+  function openSlotVideoPicker(segNum: string) {
+    setActiveSegForVideo(segNum);
+    slotVideoInputRef.current?.click();
+  }
+
+  async function handleSaveVideo() {
+    const segs = (['1','2','3','4'] as const).filter((s) => segmentVideos[s]);
+    if (segs.length === 0 || isSaving) return;
+
+    setIsSaving(true);
+    setSaveProgress(0);
+
+    try {
+      const videoEl = document.createElement('video');
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+
+      // Get dimensions from first segment
+      await new Promise<void>((resolve, reject) => {
+        videoEl.src = segmentVideos[segs[0]];
+        videoEl.onloadedmetadata = () => resolve();
+        videoEl.onerror = () => reject(new Error('Failed to load video'));
+      });
+
+      const w = videoEl.videoWidth || 1280;
+      const h = videoEl.videoHeight || 720;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
+
+      const stream = canvas.captureStream(30);
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.start(100);
+
+      for (let i = 0; i < segs.length; i++) {
+        await new Promise<void>((resolve, reject) => {
+          videoEl.src = segmentVideos[segs[i]];
+          videoEl.currentTime = 0;
+          let rafId: number;
+
+          const draw = () => {
+            if (!videoEl.ended && !videoEl.paused) {
+              ctx.drawImage(videoEl, 0, 0, w, h);
+              rafId = requestAnimationFrame(draw);
+            }
+          };
+
+          videoEl.oncanplay = () => {
+            videoEl.play().then(() => { rafId = requestAnimationFrame(draw); }).catch(reject);
+          };
+          videoEl.onended = () => {
+            cancelAnimationFrame(rafId);
+            ctx.drawImage(videoEl, 0, 0, w, h);
+            setSaveProgress(Math.round(((i + 1) / segs.length) * 100));
+            resolve();
+          };
+          videoEl.onerror = () => reject(new Error(`Failed to load segment ${segs[i]}`));
+        });
+      }
+
+      recorder.stop();
+      await new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cinema-studio.webm';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Save video failed:', err);
+    } finally {
+      setIsSaving(false);
+      setSaveProgress(0);
+    }
   }
 
   function clearReferenceImage() {
@@ -710,33 +972,342 @@ export default function VideoStudio() {
 
               {cinemaInputMode === 'Video' ? (
                 /* ── STORYBOARD LAYOUT (Video mode) ── */
-                <div className="flex flex-col gap-4 p-4 pb-[140px] lg:p-6 lg:pb-[140px]">
-                  {/* Preview canvas */}
-                  <div className="flex min-h-[260px] flex-1 items-center justify-center rounded-2xl border border-white/8 bg-[#141618] lg:min-h-[320px]">
-                    <div className="flex flex-col items-center gap-3 text-slate-600">
-                      <FileVideo className="h-10 w-10" />
-                      <span className="text-xs font-bold">Preview</span>
-                    </div>
-                  </div>
+                <>
+                  {/* Preview canvas / Player */}
+                  {(() => {
+                    const PALETTE = [
+                      '#a855f7','#22c55e','#f97316','#3b82f6','#ec4899',
+                      '#06b6d4','#eab308','#ef4444','#10b981','#8b5cf6',
+                      '#f43f5e','#14b8a6','#f59e0b','#6366f1','#84cc16',
+                      '#0ea5e9','#d946ef','#fb923c','#34d399','#818cf8',
+                      '#fb7185','#2dd4bf','#fbbf24','#60a5fa','#a3e635',
+                      '#38bdf8','#e879f9','#fdba74','#6ee7b7','#a5b4fc',
+                      '#fda4af','#5eead4','#fcd34d','#93c5fd','#bef264',
+                      '#7dd3fc','#f0abfc','#fed7aa','#a7f3d0','#c7d2fe',
+                      '#fecdd3','#99f6e4','#fde68a','#bfdbfe','#d9f99d',
+                      '#bae6fd','#f5d0fe','#ffedd5','#d1fae5','#e0e7ff',
+                    ];
+                    const getSegColor = (i: number) => PALETTE[i % PALETTE.length];
 
-                  {/* 4 × 2 clip grid */}
-                  <div className="grid grid-cols-4 gap-2 sm:gap-3">
-                    {(['1:1', '1:2', '2:1', '2:2', '3:1', '3:2', '4:1', '4:2'] as const).map((label) => (
-                      <div key={label} className="flex flex-col gap-1.5">
-                        <div className="flex aspect-video items-center justify-center rounded-xl border border-white/8 bg-[#141618]">
-                          <FileVideo className="h-5 w-5 text-white/15" />
+                    const completedSegs = Object.keys(segmentVideos).filter((s) => segmentVideos[s]).sort((a, b) => Number(a) - Number(b));
+                    completedSegsRef.current = completedSegs;
+                    const totalDur = completedSegs.reduce((sum, s) => sum + (segmentDurations[s] ?? 0), 0);
+                    const elapsedBefore = completedSegs.slice(0, playerSegIdx).reduce((sum, s) => sum + (segmentDurations[s] ?? 0), 0);
+                    const totalElapsed = elapsedBefore + playerCurrentTime;
+
+                    const fmt = (s: number) => `${Math.floor(s)}s`;
+
+                    const goTo = (idx: number, t = 0) => {
+                      setPlayerSegIdx(idx);
+                      setPlayerCurrentTime(t);
+                      if (playerVideoRef.current) { playerVideoRef.current.currentTime = t; }
+                    };
+
+                    const handleBack = () => {
+                      if (playerCurrentTime > 2) { goTo(playerSegIdx, 0); }
+                      else if (playerSegIdx > 0) { goTo(playerSegIdx - 1, 0); }
+                    };
+
+                    const handleForward = () => {
+                      if (playerSegIdx < completedSegs.length - 1) { goTo(playerSegIdx + 1, 0); }
+                    };
+
+                    const togglePlay = () => {
+                      const v = playerVideoRef.current;
+                      if (!v) return;
+                      if (playerPlaying) { v.pause(); setPlayerPlaying(false); }
+                      else { void v.play().catch(() => {}); setPlayerPlaying(true); }
+                    };
+
+                    const curSeg = completedSegs[playerSegIdx] ?? completedSegs[0];
+                    const hasVideo = completedSegs.length > 0;
+
+                    return (
+                      <div ref={playerContainerRef} className="absolute left-4 right-4 top-4 flex flex-col overflow-hidden rounded-2xl" style={{ bottom: 310, background: hasVideo ? '#000' : '#fff' }}>
+                        {/* Video or placeholder */}
+                        {hasVideo ? (
+                          <video
+                            ref={playerVideoRef}
+                            key={curSeg}
+                            src={segmentVideos[curSeg]}
+                            className="min-h-0 flex-1 w-full object-contain"
+                            onTimeUpdate={() => setPlayerCurrentTime(playerVideoRef.current?.currentTime ?? 0)}
+                            onLoadedMetadata={() => {
+                              const dur = playerVideoRef.current?.duration ?? 0;
+                              setSegmentDurations((p) => ({ ...p, [curSeg]: dur }));
+                            }}
+                            onEnded={() => {
+                              const segs = completedSegsRef.current;
+                              if (playerSegIdx < segs.length - 1) {
+                                pendingPlayRef.current = true;
+                                setPlayerSegIdx(playerSegIdx + 1);
+                                setPlayerCurrentTime(0);
+                              } else {
+                                setPlayerPlaying(false);
+                              }
+                            }}
+                            onCanPlay={() => {
+                              if (pendingPlayRef.current) {
+                                pendingPlayRef.current = false;
+                                void playerVideoRef.current?.play().catch(() => {});
+                              }
+                            }}
+                            onPlay={() => setPlayerPlaying(true)}
+                            onPause={() => setPlayerPlaying(false)}
+                          />
+                        ) : (
+                          <div className="min-h-0 flex-1" />
+                        )}
+
+                        {/* Controls bar */}
+                        <div className="flex flex-col gap-2 bg-[#111315] px-4 pb-3 pt-3">
+                          {/* Multi-color seekable progress bars */}
+                          <div
+                            className="relative flex h-4 gap-1.5 cursor-pointer"
+                            onMouseMove={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                              const time = totalDur > 0 ? pct * totalDur : 0;
+                              setBarHover({ pct: pct * 100, time });
+                            }}
+                            onMouseLeave={() => setBarHover(null)}
+                            onClick={(e) => {
+                              if (completedSegs.length === 0) return;
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                              if (totalDur > 0) {
+                                const target = ratio * totalDur;
+                                let elapsed = 0;
+                                for (let i = 0; i < completedSegs.length; i++) {
+                                  const d = segmentDurations[completedSegs[i]] ?? 0;
+                                  if (target <= elapsed + d || i === completedSegs.length - 1) {
+                                    goTo(i, Math.max(0, target - elapsed));
+                                    break;
+                                  }
+                                  elapsed += d;
+                                }
+                              } else {
+                                // Durations unknown — seek by segment index
+                                const idx = Math.min(completedSegs.length - 1, Math.floor(ratio * completedSegs.length));
+                                goTo(idx, 0);
+                              }
+                            }}
+                          >
+                            {completedSegs.length > 0 ? completedSegs.map((seg, i) => {
+                              const color = getSegColor(i);
+                              const dur = segmentDurations[seg] ?? 0;
+                              const pct = totalDur > 0 ? (dur / totalDur) * 100 : 100 / completedSegs.length;
+                              const fill = i < playerSegIdx ? 100 : (i === playerSegIdx && dur > 0) ? (playerCurrentTime / dur) * 100 : 0;
+                              return (
+                                <div key={seg} style={{ width: `${pct}%`, minWidth: 8, backgroundColor: color + '55' }} className="relative h-full rounded-full overflow-hidden flex-shrink-0">
+                                  <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${fill}%`, backgroundColor: color, transition: 'width 0.25s linear' }} />
+                                </div>
+                              );
+                            }) : (
+                              <div className="h-full w-full rounded-full" style={{ backgroundColor: '#ffffff22' }} />
+                            )}
+                            {/* Hover cursor line + tooltip */}
+                            {barHover && (
+                              <div className="pointer-events-none absolute inset-y-0 z-20" style={{ left: `${barHover.pct}%` }}>
+                                <div className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-white/90 shadow-lg" />
+                                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-black/90 px-2 py-1 text-[11px] font-bold text-white shadow-xl">
+                                  {Math.floor(barHover.time)}s
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Buttons + time */}
+                          <div className="flex items-center">
+                            <span className="w-16 text-xs text-slate-500">{fmt(totalElapsed)}</span>
+                            <div className="flex flex-1 items-center justify-center gap-5">
+                              <button type="button" onClick={handleBack} disabled={!hasVideo} className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:text-white transition disabled:opacity-30">
+                                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+                              </button>
+                              <button type="button" onClick={togglePlay} disabled={!hasVideo} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black shadow-lg transition hover:scale-105 disabled:opacity-30">
+                                {playerPlaying
+                                  ? <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
+                                  : <svg viewBox="0 0 24 24" className="h-5 w-5 translate-x-0.5" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                }
+                              </button>
+                              <button type="button" onClick={handleForward} disabled={playerSegIdx >= completedSegs.length - 1} className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:text-white transition disabled:opacity-30">
+                                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z"/></svg>
+                              </button>
+                            </div>
+                            {/* Volume button */}
+                            <button
+                              type="button"
+                              onClick={cycleVolume}
+                              disabled={!hasVideo}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.07] transition hover:bg-white/15 disabled:opacity-30"
+                              style={{ color: volumeState === 'mute' ? '#ef4444' : volumeState === 'medium' ? '#fbbf24' : '#a3e635' }}
+                              title={volumeState === 'max' ? 'Громко' : volumeState === 'medium' ? 'Средний' : 'Без звука'}
+                            >
+                              {volumeState === 'max' && <Volume2 className="h-4 w-4" />}
+                              {volumeState === 'medium' && <Volume1 className="h-4 w-4" />}
+                              {volumeState === 'mute' && <VolumeX className="h-4 w-4" />}
+                            </button>
+                            {/* Fullscreen button */}
+                            <button
+                              type="button"
+                              onClick={toggleFullscreen}
+                              disabled={!hasVideo}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.07] text-slate-400 transition hover:bg-white/15 hover:text-white disabled:opacity-30"
+                              title="На весь экран"
+                            >
+                              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                            </button>
+                            {/* Save button */}
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveVideo()}
+                              disabled={!hasVideo || isSaving}
+                              className="flex items-center gap-1.5 rounded-xl bg-[#d7ff00]/10 px-3 py-1.5 text-xs font-bold text-[#d7ff00] transition hover:bg-[#d7ff00]/20 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Склеить все сегменты и скачать"
+                            >
+                              {isSaving ? (
+                                <>
+                                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/></svg>
+                                  {saveProgress}%
+                                </>
+                              ) : (
+                                <>
+                                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                                  Сохранить
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-center text-[10px] font-bold text-slate-500">{label}</p>
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-center rounded-lg border border-white/8 bg-white/[0.04] py-1 transition hover:bg-white/[0.08]"
-                        >
-                          <Plus className="h-3.5 w-3.5 text-slate-400" />
-                        </button>
                       </div>
-                    ))}
+                    );
+                  })()}
+
+                  {/* Hidden file input for slot images */}
+                  <input
+                    ref={slotFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleSlotImageChange}
+                  />
+                  {/* Hidden file input for slot video (Ctrl+click) */}
+                  <input
+                    ref={slotVideoInputRef}
+                    type="file"
+                    accept="video/*"
+                    className="sr-only"
+                    onChange={handleSlotVideoChange}
+                  />
+
+                  {/* Card strip — sits directly above bottom bar */}
+                  <div className="absolute left-4 right-4 flex gap-3 rounded-2xl bg-[#cecece] p-3" style={{ bottom: 148 }}>
+                    {Array.from({ length: cinemaSamples }, (_, i) => [`${i+1}.1`, `${i+1}.2`] as [string, string]).map(([a, b]) => {
+                      const segNum = a.split('.')[0];
+                      const segVideo = segmentVideos[segNum];
+                      const segGenId = segmentGenerationIds[segNum];
+                      const segGen = segGenId ? generations.find((g) => g.id === segGenId) : null;
+                      const isGenerating = segGen && (segGen.status === 'pending' || segGen.status === 'processing');
+                      const isFailed = segGen?.status === 'failed';
+
+                      // Merged state: show video, spinner, or error
+                      if (segVideo || isGenerating || isFailed) {
+                        return (
+                          <div key={a} className="group relative flex flex-1 overflow-hidden rounded-2xl bg-[#4a4b4d]" style={{ minHeight: 120 }}>
+                            {segVideo ? (
+                              <video
+                                src={segVideo}
+                                className="absolute inset-0 h-full w-full object-cover"
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                              />
+                            ) : isFailed ? (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-2">
+                                <span className="text-lg">⚠️</span>
+                                <span className="text-center text-[10px] font-bold text-red-400">ошибка</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSegmentGenerationIds((p) => { const n = {...p}; delete n[segNum]; return n; })}
+                                  className="mt-1 rounded-full bg-white/10 px-2 py-0.5 text-[9px] text-white/60 hover:bg-white/20"
+                                >
+                                  повтор
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                                <Loader2 className="h-7 w-7 animate-spin text-white/60" />
+                                <span className="text-[10px] font-bold text-white/50">генерация...</span>
+                              </div>
+                            )}
+                            <span className="absolute left-2 top-2 z-10 text-[11px] font-bold text-white drop-shadow">{segNum}</span>
+                            {/* Trash button — appears on hover */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSegmentVideos((p) => { const n = {...p}; delete n[segNum]; return n; });
+                                setSegmentGenerationIds((p) => { const n = {...p}; delete n[segNum]; return n; });
+                              }}
+                              className="absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white/70 opacity-0 transition-opacity hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      // Default: two upload cards
+                      return (
+                      <div key={a} className="flex flex-1 gap-1.5">
+                        {([a, b] as const).map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={(e) => {
+                              if (e.ctrlKey) {
+                                openSlotVideoPicker(segNum);
+                              } else {
+                                openSlotPicker(label);
+                              }
+                            }}
+                            title="Клик — фото | Ctrl+Клик — загрузить видео"
+                            className="group relative flex flex-1 flex-col items-center justify-between overflow-hidden rounded-2xl bg-[#4a4b4d] px-2 pb-3 pt-2.5 transition hover:bg-[#555658]"
+                            style={{ minHeight: 120 }}
+                          >
+                            {slotImages[label] ? (
+                              <>
+                                <img
+                                  src={slotImages[label]}
+                                  alt={label}
+                                  className="absolute inset-0 h-full w-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-black/30" />
+                                <span className="relative z-10 text-[11px] font-bold text-white drop-shadow">{label}</span>
+                                <div className="relative z-10 mt-auto rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-bold text-white">изменить</div>
+                                {/* Trash button */}
+                                <div
+                                  role="button"
+                                  onClick={(e) => { e.stopPropagation(); setSlotImages((p) => { const n = {...p}; delete n[label]; return n; }); }}
+                                  className="absolute right-1.5 top-1.5 z-20 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white/70 opacity-0 transition-opacity hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-[11px] font-bold text-white/70">{label}</span>
+                                <Images className="h-7 w-7 text-white/50" />
+                                <span className="text-base font-bold text-white/60">+</span>
+                              </>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      );
+                    })}
                   </div>
-                </div>
+                </>
               ) : (
                 /* ── HERO LAYOUT (Image mode) ── */
                 <>
@@ -763,6 +1334,15 @@ export default function VideoStudio() {
                 </>
               )}
 
+              {/* Cinema Studio error banner */}
+              {error && (
+                <div className="absolute bottom-[148px] left-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-red-500/20 border border-red-500/30 px-4 py-2.5 text-sm text-red-400">
+                  <X className="h-4 w-4 shrink-0" />
+                  {error}
+                  <button type="button" onClick={() => setError('')} className="ml-auto text-red-400/60 hover:text-red-400">✕</button>
+                </div>
+              )}
+
               {/* Bottom input bar — fixed to bottom of section */}
               <div className="absolute bottom-0 left-0 right-0 px-4 pb-6 sm:px-8">
                 <div className="mx-auto max-w-3xl">
@@ -774,7 +1354,7 @@ export default function VideoStudio() {
                         <button
                           key={mode}
                           type="button"
-                          onClick={() => setCinemaInputMode(mode)}
+                          onClick={() => { setCinemaInputMode(mode); sessionStorage.setItem('cinemaInputMode', mode); }}
                           className={`flex h-10 w-14 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-bold transition ${cinemaInputMode === mode ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                           {mode === 'Image' ? <ImageIcon className="h-4 w-4" /> : <FileVideo className="h-4 w-4" />}
@@ -794,37 +1374,151 @@ export default function VideoStudio() {
                       />
                       {/* Settings chips */}
                       <div className="flex flex-wrap items-center gap-2">
-                        {/* Preset chip */}
-                        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-white/10">
-                          <span>🎬</span> Soul Cinema
-                        </button>
-                        {/* Aspect ratio */}
-                        {(['16:9', '9:16', '1:1'] as const).map((r) => (
+                        {/* Model picker chip */}
+                        <div className="relative">
                           <button
-                            key={r}
                             type="button"
-                            onClick={() => setCinemaAspect(r)}
-                            className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${cinemaAspect === r ? 'bg-white/15 text-white' : 'bg-white/[0.04] text-slate-500 hover:text-slate-300'}`}
+                            onClick={() => setCinemaModelPickerOpen((o) => !o)}
+                            className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-white/10"
                           >
-                            {r}
+                            <span>🎬</span>
+                            {videoModels.find((m) => m.id === cinemaModelId)?.name ?? 'Модель'}
+                            <ChevronDown className="h-3 w-3 opacity-60" />
                           </button>
-                        ))}
-                        {/* Quality */}
-                        {(['1K', '2K', '4K'] as const).map((q) => (
+
+                          {cinemaModelPickerOpen && (
+                            <>
+                              {/* Backdrop */}
+                              <div className="fixed inset-0 z-40" onClick={() => setCinemaModelPickerOpen(false)} />
+                              {/* Dropdown */}
+                              <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/60">
+                                <div className="border-b border-white/10 px-4 py-2.5">
+                                  <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Выберите модель</span>
+                                </div>
+                                <div className="max-h-72 overflow-y-auto py-1.5">
+                                  {videoModels.map((m) => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => { setCinemaModelId(m.id); setCinemaModelPickerOpen(false); }}
+                                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-white/[0.06] ${cinemaModelId === m.id ? 'bg-white/[0.08]' : ''}`}
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-bold text-white truncate">{m.name}</span>
+                                          {m.status === 'active' && (
+                                            <span className="shrink-0 rounded-full bg-[#d7ff00]/20 px-1.5 py-0.5 text-[9px] font-black uppercase text-[#d7ff00]">live</span>
+                                          )}
+                                        </div>
+                                        <span className="text-[11px] text-slate-500">{m.provider} · {m.estimatedCostLabel}</span>
+                                      </div>
+                                      {cinemaModelId === m.id && (
+                                        <div className="h-2 w-2 shrink-0 rounded-full bg-[#d7ff00]" />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {/* Aspect ratio picker */}
+                        <div className="relative">
                           <button
-                            key={q}
                             type="button"
-                            onClick={() => setCinemaQuality(q)}
-                            className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${cinemaQuality === q ? 'bg-white/15 text-white' : 'bg-white/[0.04] text-slate-500 hover:text-slate-300'}`}
+                            onClick={() => { setCinemaAspectPickerOpen((o) => !o); setCinemaQualityPickerOpen(false); setCinemaDurationPickerOpen(false); }}
+                            className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-white/10"
                           >
-                            {q}
+                            {cinemaAspect}
+                            <ChevronDown className="h-3 w-3 opacity-60" />
                           </button>
-                        ))}
+                          {cinemaAspectPickerOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setCinemaAspectPickerOpen(false)} />
+                              <div className="absolute bottom-full left-0 z-50 mb-2 w-36 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/60">
+                                <div className="border-b border-white/10 px-3 py-2">
+                                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Соотношение</span>
+                                </div>
+                                {(['16:9', '9:16', '1:1'] as const).map((r) => (
+                                  <button key={r} type="button"
+                                    onClick={() => { setCinemaAspect(r); setCinemaAspectPickerOpen(false); }}
+                                    className={`flex w-full items-center justify-between px-3 py-2.5 text-sm font-bold transition hover:bg-white/[0.06] ${cinemaAspect === r ? 'bg-white/[0.08] text-white' : 'text-slate-300'}`}
+                                  >
+                                    {r}
+                                    {cinemaAspect === r && <div className="h-2 w-2 rounded-full bg-[#d7ff00]" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Quality picker */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => { setCinemaQualityPickerOpen((o) => !o); setCinemaAspectPickerOpen(false); setCinemaDurationPickerOpen(false); }}
+                            className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-white/10"
+                          >
+                            {cinemaQuality}
+                            <ChevronDown className="h-3 w-3 opacity-60" />
+                          </button>
+                          {cinemaQualityPickerOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setCinemaQualityPickerOpen(false)} />
+                              <div className="absolute bottom-full left-0 z-50 mb-2 w-32 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/60">
+                                <div className="border-b border-white/10 px-3 py-2">
+                                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Качество</span>
+                                </div>
+                                {(['1K', '2K', '4K'] as const).map((q) => (
+                                  <button key={q} type="button"
+                                    onClick={() => { setCinemaQuality(q); setCinemaQualityPickerOpen(false); }}
+                                    className={`flex w-full items-center justify-between px-3 py-2.5 text-sm font-bold transition hover:bg-white/[0.06] ${cinemaQuality === q ? 'bg-white/[0.08] text-white' : 'text-slate-300'}`}
+                                  >
+                                    {q}
+                                    {cinemaQuality === q && <div className="h-2 w-2 rounded-full bg-[#d7ff00]" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Duration picker */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => { setCinemaDurationPickerOpen((o) => !o); setCinemaAspectPickerOpen(false); setCinemaQualityPickerOpen(false); }}
+                            className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-white/10"
+                          >
+                            {cinemaDuration}s
+                            <ChevronDown className="h-3 w-3 opacity-60" />
+                          </button>
+                          {cinemaDurationPickerOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setCinemaDurationPickerOpen(false)} />
+                              <div className="absolute bottom-full left-0 z-50 mb-2 w-32 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1c1f] shadow-2xl shadow-black/60">
+                                <div className="border-b border-white/10 px-3 py-2">
+                                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Длительность</span>
+                                </div>
+                                {([5, 10, 15] as const).map((d) => (
+                                  <button key={d} type="button"
+                                    onClick={() => { setCinemaDuration(d); setCinemaDurationPickerOpen(false); }}
+                                    className={`flex w-full items-center justify-between px-3 py-2.5 text-sm font-bold transition hover:bg-white/[0.06] ${cinemaDuration === d ? 'bg-white/[0.08] text-white' : 'text-slate-300'}`}
+                                  >
+                                    {d} сек
+                                    {cinemaDuration === d && <div className="h-2 w-2 rounded-full bg-[#d7ff00]" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                         {/* Sample count */}
                         <div className="flex items-center gap-1">
                           <button type="button" onClick={() => setCinemaSamples((s) => Math.max(1, s - 1))} className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-white">−</button>
-                          <span className="min-w-[20px] text-center text-xs font-bold text-slate-300">{cinemaSamples}/4</span>
-                          <button type="button" onClick={() => setCinemaSamples((s) => Math.min(4, s + 1))} className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-white">+</button>
+                          <span className="min-w-[20px] text-center text-xs font-bold text-slate-300">{cinemaSamples}</span>
+                          <button type="button" onClick={() => setCinemaSamples((s) => s + 1)} className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-white">+</button>
                         </div>
                       </div>
                     </div>
@@ -832,16 +1526,26 @@ export default function VideoStudio() {
                     {/* Generate button */}
                     <button
                       type="button"
-                      disabled={!cinemaPrompt.trim()}
+                      disabled={!cinemaPrompt.trim() || loading}
                       onClick={() => {
-                        setPrompt(cinemaPrompt);
-                        setMainTab('Создать видео');
-                        setTimeout(() => { void runGeneration(); }, 100);
+                        if (cinemaInputMode === 'Video') {
+                          void runCinemaVideoGeneration();
+                        } else {
+                          setPrompt(cinemaPrompt);
+                          setMainTab('Создать видео');
+                          setTimeout(() => { void runGeneration(); }, 100);
+                        }
                       }}
                       className="flex min-w-[100px] flex-col items-center justify-center gap-1 rounded-xl bg-[#d7ff00] px-4 py-3 text-xs font-black uppercase text-black transition hover:bg-[#e2ff4d] disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <span className="text-sm tracking-widest">GENERATE</span>
-                      <span className="opacity-60">→ 0.125</span>
+                      {loading && cinemaInputMode === 'Video' ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <>
+                          <span className="text-sm tracking-widest">GENERATE</span>
+                          <span className="opacity-60">→ 0.125</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

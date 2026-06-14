@@ -6,6 +6,7 @@ interface VideoRequest {
   stylePreset?: string; cameraMotion?: string;
   referenceImageUrl?: string; referenceVideoUrl?: string; referenceAudioUrl?: string;
   referenceImageUrls?: string[];
+  lastFrameImageUrl?: string;
 }
 
 interface VideoResult {
@@ -123,6 +124,7 @@ async function generateSeedance(env: Env, req: VideoRequest): Promise<VideoResul
 
 const REPLICATE_MODELS: Record<string, string> = {
   'seedance-2': 'bytedance/seedance-2.0',
+  'seedance-2-fast': 'bytedance/seedance-2.0',
   'seedance-2-i2v': 'bytedance/seedance-2.0',
   'replicate-wan-t2v': 'minimax/video-01',
   'replicate-wan-i2v': 'minimax/video-01',
@@ -142,6 +144,7 @@ function buildReplicateInput(modelPath: string, req: VideoRequest): Record<strin
       generate_audio: true,
     };
     if (req.referenceImageUrl) input.image = req.referenceImageUrl;
+    if (req.lastFrameImageUrl) input.last_frame_image = req.lastFrameImageUrl;
     return input;
   }
   if (modelPath === 'minimax/video-01' || modelPath === 'minimax/video-01-live') {
@@ -163,10 +166,44 @@ function buildReplicateInput(modelPath: string, req: VideoRequest): Record<strin
   return input;
 }
 
+// Uploads a data URL to Replicate Files API and returns a public URL
+async function uploadDataUrlToReplicate(apiToken: string, dataUrl: string): Promise<string> {
+  const [meta, b64] = dataUrl.split(',');
+  const mimeMatch = meta.match(/data:([^;]+)/);
+  const mime = mimeMatch?.[1] ?? 'image/jpeg';
+  const ext = mime.split('/')[1] ?? 'jpg';
+
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+  const form = new FormData();
+  form.append('content', new Blob([bytes], { type: mime }), `frame.${ext}`);
+
+  const res = await fetch('https://api.replicate.com/v1/files', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiToken}` },
+    body: form,
+  });
+  const data = await readJson(res) as Record<string, unknown>;
+  if (!res.ok) throw new Error(`Replicate file upload failed: ${res.status} ${JSON.stringify(data)}`);
+
+  const urls = data.urls as Record<string, string> | undefined;
+  const url = urls?.get ?? String(data.url ?? '');
+  if (!url) throw new Error('Replicate file upload: no URL returned');
+  return url;
+}
+
 // Creates a Replicate prediction and returns the ID immediately (no polling)
 export async function createReplicatePrediction(apiToken: string, modelId: string, req: VideoRequest): Promise<string> {
   const model = REPLICATE_MODELS[modelId];
   if (!model) throw new Error(`No Replicate model for ${modelId}`);
+
+  // Upload any data: URLs to Replicate Files API so they become public HTTP URLs
+  if (req.referenceImageUrl?.startsWith('data:')) {
+    req = { ...req, referenceImageUrl: await uploadDataUrlToReplicate(apiToken, req.referenceImageUrl) };
+  }
+  if (req.lastFrameImageUrl?.startsWith('data:')) {
+    req = { ...req, lastFrameImageUrl: await uploadDataUrlToReplicate(apiToken, req.lastFrameImageUrl) };
+  }
 
   const headers = { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' };
   const input = buildReplicateInput(model, req);
@@ -264,7 +301,7 @@ async function generateHuggingFace(env: Env, req: VideoRequest): Promise<VideoRe
 export async function generateVideo(env: Env, req: VideoRequest): Promise<VideoResult> {
   const provider = {
     'wavespeed-wan': 'wavespeed', 'wavespeed-wan-i2v': 'wavespeed',
-    'seedance-2': 'seedance', 'seedance-2-fast': 'seedance',
+    'seedance-2': 'replicate', 'seedance-2-fast': 'replicate',
     'replicate-wan-t2v': 'replicate', 'replicate-wan-i2v': 'replicate',
     'replicate-kling': 'replicate', 'replicate-luma': 'replicate',
     'huggingface-cogvideox': 'huggingface', 'huggingface-opensora': 'huggingface',

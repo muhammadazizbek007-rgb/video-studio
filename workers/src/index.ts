@@ -6,7 +6,7 @@ import { Firestore } from './firestore';
 import { handleGenerateMcpToken, handleGetMcpToken } from './handlers/mcp';
 import { handleGetClaudeSettings, handleSaveClaudeSettings, handleTestClaudeConnection } from './handlers/claude';
 import { handleGetUserCredits, handleGrantCredits, handleRedeemPromoCode } from './handlers/credits';
-import { handleStartVideoGeneration, handleTestSeedanceConnection, handleTestProviderConnection } from './handlers/video';
+import { handleStartVideoGeneration, handleCheckVideoGeneration, handleTestSeedanceConnection, handleTestProviderConnection } from './handlers/video';
 import { handleSetAdminClaim } from './handlers/admin';
 import { handleMcp } from './mcp';
 
@@ -104,6 +104,7 @@ export default {
         case 'grantCredits': result = await handleGrantCredits(handlerCtx, data); break;
         case 'redeemPromoCode': result = await handleRedeemPromoCode(handlerCtx, data); break;
         case 'startVideoGeneration': result = await handleStartVideoGeneration(handlerCtx, data); break;
+        case 'checkVideoGeneration': result = await handleCheckVideoGeneration(handlerCtx, data); break;
         case 'setAdminClaim': result = await handleSetAdminClaim(handlerCtx, data); break;
         case 'testSeedanceConnection': result = await handleTestSeedanceConnection(handlerCtx, data); break;
         case 'testProviderConnection': result = await handleTestProviderConnection(handlerCtx, data); break;

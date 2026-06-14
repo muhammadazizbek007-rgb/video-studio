@@ -1,5 +1,6 @@
 import { HttpsError, type HandlerContext } from '../types';
 import { ensureUserCredits, deductCredits, checkRateLimit } from './credits';
+import { createReplicatePrediction, checkReplicatePrediction } from '../providers';
 
 const ALL_MODEL_IDS = [
   'wavespeed-wan', 'wavespeed-wan-i2v', 'seedance-2', 'seedance-2-fast',
@@ -10,7 +11,7 @@ const ALL_MODEL_IDS = [
 
 const MODEL_TO_PROVIDER: Record<string, string> = {
   'wavespeed-wan': 'wavespeed', 'wavespeed-wan-i2v': 'wavespeed',
-  'seedance-2': 'seedance', 'seedance-2-fast': 'seedance',
+  'seedance-2': 'replicate', 'seedance-2-fast': 'replicate',
   'replicate-wan-t2v': 'replicate', 'replicate-wan-i2v': 'replicate',
   'replicate-kling': 'replicate', 'replicate-luma': 'replicate',
   'huggingface-cogvideox': 'huggingface', 'huggingface-opensora': 'huggingface',
@@ -18,18 +19,24 @@ const MODEL_TO_PROVIDER: Record<string, string> = {
   'leonardo-motion': 'leonardo', 'json2video': 'json2video',
 };
 
+// Models that use Replicate — client polls status instead of worker waiting
+const REPLICATE_MODEL_IDS = new Set([
+  'seedance-2', 'seedance-2-fast',
+  'replicate-wan-t2v', 'replicate-wan-i2v',
+  'replicate-kling', 'replicate-luma',
+]);
+
 interface VideoRequest {
   generationId: string; prompt: string; enrichedPrompt?: string;
   modelId: string; mode: string; aspectRatio: string; duration: number;
   stylePreset: string; cameraMotion: string;
   referenceImageUrl?: string; referenceVideoUrl?: string; referenceAudioUrl?: string;
   referenceImageUrls?: string[]; referenceMode?: string;
+  lastFrameImageUrl?: string;
   elements?: unknown[]; referenceCount?: number;
 }
 
-async function runVideoGeneration(ctx: HandlerContext, userId: string, req: VideoRequest): Promise<void> {
-  const genRef = `video_generations/${req.generationId}`;
-
+async function runNonReplicateGeneration(ctx: HandlerContext, userId: string, req: VideoRequest): Promise<void> {
   try {
     const { generateVideo } = await import('../providers');
     const result = await generateVideo(ctx.env, req);
@@ -47,11 +54,9 @@ async function runVideoGeneration(ctx: HandlerContext, userId: string, req: Vide
     const message = error instanceof Error ? error.message : String(error);
     console.error('Video generation failed:', { generationId: req.generationId, userId, modelId: req.modelId, message });
     await ctx.db.upsertWithTransforms('video_generations', req.generationId, {
-      status: 'failed',
-      errorMessage: message,
+      status: 'failed', errorMessage: message,
     }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
   }
-  void genRef;
 }
 
 export async function handleStartVideoGeneration(ctx: HandlerContext, data: unknown) {
@@ -95,18 +100,99 @@ export async function handleStartVideoGeneration(ctx: HandlerContext, data: unkn
     referenceAudioUrl: d?.referenceAudioUrl ? String(d.referenceAudioUrl) : undefined,
     referenceImageUrls: Array.isArray(d?.referenceImageUrls) ? (d.referenceImageUrls as string[]) : undefined,
     referenceMode: d?.referenceMode ? String(d.referenceMode) : undefined,
+    lastFrameImageUrl: d?.lastFrameImageUrl ? String(d.lastFrameImageUrl) : undefined,
     referenceCount: d?.referenceCount ? Number(d.referenceCount) : 0,
   };
 
+  // Strip data: URLs before saving to Firestore (1MB field limit)
+  const isDataUrl = (v: unknown) => typeof v === 'string' && (v as string).startsWith('data:');
+  const stripDataUrls = (v: unknown): unknown => {
+    if (isDataUrl(v)) return undefined;
+    if (Array.isArray(v)) { const f = v.filter((i) => !isDataUrl(i)); return f.length > 0 ? f : undefined; }
+    return v;
+  };
+  const firestoreReq = Object.fromEntries(
+    Object.entries(req).map(([k, v]) => [k, stripDataUrls(v)]).filter(([, v]) => v !== undefined)
+  );
+
+  if (REPLICATE_MODEL_IDS.has(modelId)) {
+    // ── Replicate path: create prediction immediately, client polls status ──
+    const apiToken = String(ctx.env.REPLICATE_API_TOKEN || '').trim();
+    if (!apiToken) throw new HttpsError('internal', 'REPLICATE_API_TOKEN not configured');
+
+    let predictionId: string;
+    try {
+      predictionId = await createReplicatePrediction(apiToken, modelId, req);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await ctx.db.upsertWithTransforms('video_generations', generationId, {
+        status: 'failed', errorMessage: msg,
+      }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+      throw new HttpsError('internal', msg);
+    }
+
+    await ctx.db.upsertWithTransforms('video_generations', generationId, {
+      ...firestoreReq, status: 'processing',
+      replicatePredictionId: predictionId,
+      provider: 'replicate',
+    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+
+    return { ok: true, generationId, status: 'processing', replicatePredictionId: predictionId };
+  }
+
+  // ── Non-Replicate path: worker polls in background (fast providers) ──
   await ctx.db.upsertWithTransforms('video_generations', generationId, {
-    ...req, status: 'processing',
+    ...firestoreReq, status: 'processing',
     provider: MODEL_TO_PROVIDER[modelId] || 'unknown',
   }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
 
-  // Run generation in background so we can respond immediately
-  ctx.ctx.waitUntil(runVideoGeneration(ctx, userId, req));
-
+  ctx.ctx.waitUntil(runNonReplicateGeneration(ctx, userId, req));
   return { ok: true, generationId, status: 'processing' };
+}
+
+// Client calls this every ~5s to check Replicate prediction status
+export async function handleCheckVideoGeneration(ctx: HandlerContext, data: unknown) {
+  if (!ctx.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in is required.');
+
+  const d = data as Record<string, unknown>;
+  const generationId = String(d?.generationId || '').trim();
+  if (!generationId) throw new HttpsError('invalid-argument', 'generationId is required.');
+
+  const doc = await ctx.db.get('video_generations', generationId);
+  if (!doc) throw new HttpsError('not-found', 'Generation not found.');
+  if (doc.userId !== ctx.auth.uid) throw new HttpsError('permission-denied', 'Access denied.');
+
+  // Already done — just return current status
+  if (doc.status === 'completed' || doc.status === 'failed') {
+    return { status: doc.status, resultVideoUrl: doc.resultVideoUrl ?? null, error: doc.errorMessage ?? null };
+  }
+
+  const predictionId = String(doc.replicatePredictionId || '').trim();
+  if (!predictionId) return { status: doc.status };
+
+  const apiToken = String(ctx.env.REPLICATE_API_TOKEN || '').trim();
+  const result = await checkReplicatePrediction(apiToken, predictionId);
+
+  if (result.status === 'completed' && result.videoUrl) {
+    await ctx.db.upsertWithTransforms('video_generations', generationId, {
+      status: 'completed',
+      resultVideoUrl: result.videoUrl,
+      provider: 'replicate',
+    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+
+    // Deduct credits after confirmed completion
+    await deductCredits(ctx, doc.userId as string, doc.modelId as string);
+    return { status: 'completed', resultVideoUrl: result.videoUrl, error: null };
+  }
+
+  if (result.status === 'failed') {
+    await ctx.db.upsertWithTransforms('video_generations', generationId, {
+      status: 'failed', errorMessage: result.error || 'Replicate failed',
+    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+    return { status: 'failed', resultVideoUrl: null, error: result.error };
+  }
+
+  return { status: 'processing', resultVideoUrl: null, error: null };
 }
 
 export async function handleTestSeedanceConnection(ctx: HandlerContext, _data: unknown) {

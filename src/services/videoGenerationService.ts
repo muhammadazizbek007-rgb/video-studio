@@ -22,6 +22,7 @@ interface StartVideoGenerationPayload {
   referenceImageUrl?: string;
   referenceVideoUrl?: string;
   referenceAudioUrl?: string;
+  lastFrameImageUrl?: string;
   // Multi reference
   referenceImageUrls?: string[];
   referenceMode?: ReferenceMode;
@@ -36,7 +37,7 @@ export async function generateVideo(userId: string, input: CreateVideoGeneration
 
   try {
     // Upload user-provided files
-    const [uploadedImageUrl, referenceVideoUrl, referenceAudioUrl] = await Promise.all([
+    const [uploadedImageUrl, referenceVideoUrl, referenceAudioUrl, lastFrameImageUrl] = await Promise.all([
       input.referenceImageFile
         ? uploadReferenceFile(userId, request.id, input.referenceImageFile, 'image')
         : Promise.resolve(input.referenceImageUrl),
@@ -46,6 +47,9 @@ export async function generateVideo(userId: string, input: CreateVideoGeneration
       input.referenceAudioFile
         ? uploadReferenceFile(userId, request.id, input.referenceAudioFile, 'audio')
         : Promise.resolve(input.referenceAudioUrl),
+      input.lastFrameImageFile
+        ? uploadReferenceFile(userId, request.id, input.lastFrameImageFile, 'image')
+        : Promise.resolve(input.lastFrameImageUrl),
     ]);
 
     // Build final reference image list:
@@ -59,13 +63,21 @@ export async function generateVideo(userId: string, input: CreateVideoGeneration
     // Primary single URL for legacy providers
     const referenceImageUrl = referenceImageUrls[0];
 
+    // data: URLs are too large for Firestore (1MB limit) — store placeholder instead
+    const isDataUrl = (u?: string) => u?.startsWith('data:') ?? false;
+    const firestoreImageUrl = isDataUrl(referenceImageUrl) ? undefined : referenceImageUrl;
+    const firestoreLastFrameUrl = isDataUrl(lastFrameImageUrl ?? '') ? undefined : (lastFrameImageUrl ?? undefined);
+
     const enrichedRequest = {
       ...request,
       enrichedPrompt: input.enrichedPrompt,
-      referenceImageUrl,
-      referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+      referenceImageUrl: firestoreImageUrl,
+      referenceImageUrls: referenceImageUrls.filter((u) => !isDataUrl(u)).length > 0
+        ? referenceImageUrls.filter((u) => !isDataUrl(u))
+        : undefined,
       referenceVideoUrl,
       referenceAudioUrl,
+      lastFrameImageUrl: firestoreLastFrameUrl,
       elements: input.elements,
       referenceMode: input.referenceMode,
       referenceCount: referenceImageUrls.length,
@@ -73,6 +85,9 @@ export async function generateVideo(userId: string, input: CreateVideoGeneration
     };
 
     await updateVideoGeneration(request.id, enrichedRequest);
+
+    // Filter data: URLs from arrays before sending to worker (Firestore 1MB limit)
+    const workerImageUrls = referenceImageUrls.filter((u) => !isDataUrl(u));
 
     await callWorker<{ ok: boolean }>('startVideoGeneration', {
       generationId: request.id,
@@ -85,9 +100,10 @@ export async function generateVideo(userId: string, input: CreateVideoGeneration
       stylePreset: enrichedRequest.stylePreset,
       cameraMotion: enrichedRequest.cameraMotion,
       referenceImageUrl,
-      referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+      referenceImageUrls: workerImageUrls.length > 0 ? workerImageUrls : undefined,
       referenceVideoUrl,
       referenceAudioUrl,
+      lastFrameImageUrl: lastFrameImageUrl || undefined,
       elements: input.elements,
       referenceMode: input.referenceMode,
       referenceCount: referenceImageUrls.length,
