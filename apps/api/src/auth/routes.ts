@@ -19,7 +19,7 @@ import {
   setSessionCookies,
 } from './cookies.js';
 import { createAuthorizationUrl, exchangeCode, type GoogleProfile } from './google.js';
-import { assertEmailAllowed, requireAuthUser } from './plugin.js';
+import { assertEmailAllowed, isEmailAllowed, requireAuthUser } from './plugin.js';
 import { generateRefreshToken, hashRefreshToken, signAccessToken } from './tokens.js';
 
 type UserDocument = HydratedDocument<UserDoc>;
@@ -72,23 +72,42 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     return await reply.redirect(url, 302);
   });
 
-  fastify.get<{ Querystring: { code?: string; state?: string } }>(
+  fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/google/callback',
     async (request, reply) => {
-      const { code, state } = request.query;
+      const { code, state, error: googleError } = request.query;
       const expectedState = request.cookies[OAUTH_STATE_COOKIE];
       const codeVerifier = request.cookies[OAUTH_VERIFIER_COOKIE];
       clearOauthCookies(reply);
 
+      // The browser lands here directly from Google, so a failure must come back as the
+      // login page carrying a reason — not as the JSON error envelope the API uses
+      // everywhere else. A rejected user seeing raw JSON is a dead end.
+      const fail = async (reason: string, detail: string) => {
+        logger.warn({ reason, detail }, 'google sign-in rejected');
+        return await reply.redirect(`${env.webAppUrl}/login?error=${reason}`, 302);
+      };
+
+      // The user pressed "Cancel" on Google's consent screen, or Google refused outright.
+      if (googleError) return await fail('cancelled', googleError);
+
       if (!code || !state || !expectedState || !codeVerifier || state !== expectedState) {
-        throw new ApiError(
-          'permission-denied',
-          'Sign-in request could not be verified. Please start again.',
+        return await fail('state', 'state or PKCE verifier missing or mismatched');
+      }
+
+      let profile: Awaited<ReturnType<typeof exchangeCode>>;
+      try {
+        profile = await exchangeCode(code, codeVerifier);
+      } catch (exchangeError) {
+        return await fail(
+          'exchange',
+          exchangeError instanceof Error ? exchangeError.message : 'code exchange failed',
         );
       }
 
-      const profile = await exchangeCode(code, codeVerifier);
-      assertEmailAllowed(profile.email);
+      if (!isEmailAllowed(profile.email)) {
+        return await fail('forbidden', profile.email);
+      }
 
       const user = await upsertGoogleUser(profile);
       await issueSession(reply, user);

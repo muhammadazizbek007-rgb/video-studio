@@ -64,7 +64,17 @@ export function LoginPage() {
   const { t } = useLanguage();
   const { user, isLoading, signIn } = useAuth();
   const [searchParams] = useSearchParams();
-  const forbidden = searchParams.get('error') === 'forbidden';
+  // Reasons the API redirects back with; anything else is treated as a generic failure
+  // rather than swallowed, so a user is never returned to a silent login screen.
+  const signInError = searchParams.get('error');
+  const errorKey =
+    signInError === null
+      ? null
+      : signInError === 'forbidden'
+        ? 'login.forbidden'
+        : signInError === 'cancelled'
+          ? 'login.cancelled'
+          : 'login.failed';
 
   if (user) return <Navigate to="/dashboard" replace />;
 
@@ -80,9 +90,9 @@ export function LoginPage() {
           <p className="text-sm opacity-70">{t('login.tagline')}</p>
         </div>
 
-        {forbidden ? (
+        {errorKey ? (
           <p role="alert" className="rounded-xl bg-current/10 px-4 py-3 text-sm">
-            {t('login.forbidden')}
+            {t(errorKey)}
           </p>
         ) : null}
 

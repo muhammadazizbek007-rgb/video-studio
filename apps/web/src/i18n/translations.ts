@@ -20,6 +20,8 @@ const ru = {
   'login.tagline': 'Войдите через Google, чтобы генерировать видео',
   'login.continueWithGoogle': 'Продолжить с Google',
   'login.forbidden': 'У этого аккаунта нет доступа к Video Studio',
+  'login.cancelled': 'Вход через Google был отменён',
+  'login.failed': 'Не удалось завершить вход через Google. Попробуйте ещё раз',
   'login.checking': 'Проверяем сессию…',
 
   'dashboard.title': 'Мои видео',
@@ -209,6 +211,8 @@ const uz: Dictionary = {
   'login.tagline': 'Video yaratish uchun Google orqali kiring',
   'login.continueWithGoogle': 'Google bilan davom etish',
   'login.forbidden': 'Bu akkauntda Video Studio-ga ruxsat yo‘q',
+  'login.cancelled': 'Google orqali kirish bekor qilindi',
+  'login.failed': 'Google orqali kirishni yakunlab bo‘lmadi. Qayta urinib ko‘ring',
   'login.checking': 'Sessiya tekshirilmoqda…',
 
   'dashboard.title': 'Mening videolarim',
@@ -394,6 +398,8 @@ const en: Dictionary = {
   'login.tagline': 'Sign in with Google to start generating video',
   'login.continueWithGoogle': 'Continue with Google',
   'login.forbidden': 'This account does not have access to Video Studio',
+  'login.cancelled': 'Google sign-in was cancelled',
+  'login.failed': 'Google sign-in could not be completed. Please try again',
   'login.checking': 'Checking your session…',
 
   'dashboard.title': 'My videos',
