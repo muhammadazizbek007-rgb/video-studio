@@ -1,0 +1,273 @@
+import type {
+  CameraMotion,
+  CreateGenerationInput,
+  GenerationDto,
+  VideoAspectRatio,
+  VideoDuration,
+  VideoGenerationMode,
+  VideoStylePreset,
+} from '@video-studio/shared';
+import {
+  DEFAULT_VIDEO_MODEL_ID,
+  getVeoModel,
+  requireVeoModel,
+  resolveDuration,
+} from '@video-studio/shared';
+import { Wand2 } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Button, Card, Surface } from '@/components/ui';
+import { GenerationGrid } from '@/components/video/GenerationGrid';
+import { GenerationSettings } from '@/components/video/GenerationSettings';
+import { ModelPicker } from '@/components/video/ModelPicker';
+import { PromptComposer } from '@/components/video/PromptComposer';
+import { ReferenceUploader } from '@/components/video/ReferenceUploader';
+import { StatusPill } from '@/components/video/StatusPill';
+import { VideoPlayer } from '@/components/video/VideoPlayer';
+import { useElements } from '@/hooks/useElements';
+import { useGenerationStream } from '@/hooks/useGenerationStream';
+import {
+  useCreateGeneration,
+  useDeleteGeneration,
+  useGenerations,
+  useUpdateGeneration,
+} from '@/hooks/useGenerations';
+import { useLanguage } from '@/i18n/LanguageContext';
+import { resolveReferences } from '@/lib/references';
+
+const PROMPT_MAX_LENGTH = 8000;
+
+export function StudioPage() {
+  const { t } = useLanguage();
+  const [searchParams] = useSearchParams();
+
+  const [modelId, setModelId] = useState<string>(DEFAULT_VIDEO_MODEL_ID);
+  const model = getVeoModel(modelId) ?? requireVeoModel(DEFAULT_VIDEO_MODEL_ID);
+
+  const [prompt, setPrompt] = useState('');
+  const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>('16:9');
+  const [duration, setDuration] = useState<VideoDuration>(model.defaultDuration);
+  const [stylePreset, setStylePreset] = useState<VideoStylePreset>('Cinematic');
+  const [cameraMotion, setCameraMotion] = useState<CameraMotion>('Dolly in');
+  const [mode, setMode] = useState<VideoGenerationMode>('text_to_video');
+  const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
+  const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const { data: elements } = useElements();
+  const resultsHeadingId = useId();
+  const { generations: listData, isLoading, isError, refetch } = useGenerations();
+  const createGeneration = useCreateGeneration();
+  const updateGeneration = useUpdateGeneration();
+  const deleteGeneration = useDeleteGeneration();
+  const stream = useGenerationStream(activeId);
+
+  // Every selection the previous model allowed has to be re-checked against the
+  // new one, otherwise the API would reject the request as invalid.
+  const previousModelId = useRef(modelId);
+  useEffect(() => {
+    if (previousModelId.current === modelId) return;
+    previousModelId.current = modelId;
+    setDuration((current) => resolveDuration(model, current));
+    setAspectRatio((current) =>
+      model.aspectRatios.includes(current) ? current : (model.aspectRatios[0] ?? '16:9'),
+    );
+    if (!model.supportsLastFrame) setLastFrameUrl(null);
+    if (!model.supportsImageToVideo) setFirstFrameUrl(null);
+  }, [model, modelId]);
+
+  const references = useMemo(
+    () =>
+      resolveReferences({
+        prompt,
+        elements: elements ?? [],
+        model,
+        uploadedImageUrl: firstFrameUrl,
+      }),
+    [prompt, elements, model, firstFrameUrl],
+  );
+
+  // The attached references decide what the request actually is; the picker only
+  // matters while nothing is attached.
+  useEffect(() => {
+    setMode(references.mode);
+  }, [references.mode]);
+
+  const generations: GenerationDto[] = useMemo(() => {
+    const items = listData;
+    const live = stream.generation;
+    if (!live) return items;
+    return items.some((item) => item.id === live.id)
+      ? items.map((item) => (item.id === live.id ? live : item))
+      : [live, ...items];
+  }, [listData, stream.generation]);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get('generation');
+    if (fromUrl) setSelectedId(fromUrl);
+  }, [searchParams]);
+
+  const selected = generations.find((generation) => generation.id === selectedId) ?? null;
+  const active = generations.find((generation) => generation.id === activeId) ?? null;
+  const busy = createGeneration.isPending;
+
+  async function generate() {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    setError('');
+
+    const payload: CreateGenerationInput = {
+      prompt: trimmed,
+      modelId,
+      mode,
+      aspectRatio,
+      duration,
+      stylePreset,
+      cameraMotion,
+      enrichedPrompt:
+        references.enrichedPromptHint && references.enrichedPromptHint !== trimmed
+          ? references.enrichedPromptHint
+          : undefined,
+      referenceImageUrls:
+        references.referenceImageUrls.length > 0 ? references.referenceImageUrls : undefined,
+      lastFrameImageUrl: model.supportsLastFrame && lastFrameUrl ? lastFrameUrl : undefined,
+      elements: [...references.visualRefs, ...references.textRefs],
+    };
+
+    try {
+      const created = await createGeneration.mutateAsync(payload);
+      setActiveId(created.id);
+      setSelectedId(created.id);
+    } catch (generationError) {
+      setError(
+        generationError instanceof Error ? generationError.message : t('studio.generateFailed'),
+      );
+    }
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-4">
+        <Card className="flex flex-col gap-5 p-4">
+          <PromptComposer
+            value={prompt}
+            onChange={setPrompt}
+            elements={elements ?? []}
+            maxLength={PROMPT_MAX_LENGTH}
+            disabled={busy}
+            enrichContext={{
+              stylePreset,
+              cameraMotion,
+              mode,
+              elements: [...references.visualRefs, ...references.textRefs],
+            }}
+          />
+
+          <ModelPicker value={modelId} onChange={setModelId} disabled={busy} />
+
+          <GenerationSettings
+            model={model}
+            mode={mode}
+            onModeChange={setMode}
+            aspectRatio={aspectRatio}
+            onAspectRatioChange={setAspectRatio}
+            duration={duration}
+            onDurationChange={setDuration}
+            stylePreset={stylePreset}
+            onStylePresetChange={setStylePreset}
+            cameraMotion={cameraMotion}
+            onCameraMotionChange={setCameraMotion}
+            referenceCount={references.referenceImageUrls.length}
+            disabled={busy}
+          />
+
+          <ReferenceUploader
+            supportsLastFrame={model.supportsLastFrame}
+            firstFrameUrl={firstFrameUrl}
+            lastFrameUrl={lastFrameUrl}
+            onFirstFrameChange={setFirstFrameUrl}
+            onLastFrameChange={setLastFrameUrl}
+            disabled={busy || !model.supportsImageToVideo}
+          />
+
+          <p data-testid="studio-summary" className="text-xs opacity-70">
+            {model.name} · {aspectRatio} · {duration}s · {t(`mode.${mode}`)}
+          </p>
+
+          {error ? (
+            <p role="alert" className="text-sm opacity-80">
+              {error}
+            </p>
+          ) : null}
+
+          <Button
+            type="button"
+            size="lg"
+            loading={busy}
+            disabled={prompt.trim().length === 0}
+            onClick={() => void generate()}
+          >
+            <Wand2 className="h-4 w-4" />
+            {t('studio.generate')}
+          </Button>
+        </Card>
+      </div>
+
+      <div className="flex flex-col gap-6">
+        {active && active.status !== 'completed' ? (
+          <Surface className="flex items-center gap-3 p-4">
+            <StatusPill status={active.status} />
+            <p className="min-w-0 flex-1 truncate text-sm opacity-80">{active.prompt}</p>
+          </Surface>
+        ) : null}
+
+        {selected?.resultVideoUrl ? (
+          <div className="flex flex-col gap-2">
+            <VideoPlayer
+              src={selected.resultVideoUrl}
+              poster={selected.referenceImageUrls[0]}
+              downloadName={`${selected.id}.mp4`}
+            />
+            <p className="text-sm opacity-80">{selected.prompt}</p>
+          </div>
+        ) : null}
+
+        <section className="flex flex-col gap-3" aria-labelledby={resultsHeadingId}>
+          <h2 id={resultsHeadingId} className="text-lg font-semibold">
+            {t('studio.results')}
+          </h2>
+          <GenerationGrid
+            generations={generations}
+            isLoading={isLoading}
+            isError={isError}
+            onRetry={() => void refetch()}
+            selectedId={selectedId}
+            deletingId={deletingId}
+            onOpen={(generation) => setSelectedId(generation.id)}
+            onToggleSave={(generation) => {
+              void updateGeneration.mutateAsync({
+                id: generation.id,
+                input: { saved: !generation.saved },
+              });
+            }}
+            onDelete={(generation) => {
+              setDeletingId(generation.id);
+              void deleteGeneration
+                .mutateAsync(generation.id)
+                .then(() => {
+                  if (selectedId === generation.id) setSelectedId(null);
+                })
+                .catch(() => undefined)
+                .finally(() => setDeletingId(null));
+            }}
+          />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export default StudioPage;

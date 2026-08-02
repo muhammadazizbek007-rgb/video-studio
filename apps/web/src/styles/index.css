@@ -1,0 +1,383 @@
+/*
+  Video Studio — neumorphic design system.
+  Five rules keep it coherent; breaking any one of them breaks all of it.
+
+  1. ONE SURFACE COLOUR. --color-surface, --color-surface-raised and --color-surface-sunken are the
+     SAME value on purpose. Depth is shadow, never fill. A card that is a lighter grey than the page
+     is not neumorphism — if something needs to stand out, change its elevation, not its colour.
+  2. ONE LIGHT SOURCE, TOP-LEFT. Every raised shadow is a dark blur down-right PLUS a light blur
+     up-left. Pressed, sunken and input surfaces are that identical pair with `inset`. Never invert
+     an offset, never ship a single-shadow "raised" element.
+  3. SHADOW COLOURS COME FROM THE SURFACE — a darker and a lighter shade of it, never pure black and
+     never a hue-shifted grey (the light theme's highlight tops out at white, which is the lit face
+     of #e6e7ee, not a decoration).
+  4. FOCUS IS NOT A SHADOW. Shadow-only UI has no readable focus state, so every interactive element
+     gets a real 2px accent outline with offset. This is the accessibility weak point of the style —
+     do not remove the outline, do not replace it with a glow.
+  5. RADII ARE 12 / 18 / 26px and the accent is used sparingly. Only content (thumbnails, status
+     dots) is allowed to be colourful.
+*/
+
+@import "tailwindcss";
+
+/* Class-driven, but a system-dark visitor gets dark on first paint before the hook mounts;
+   an explicit `.light` on <html> always wins over the media query. */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+:root {
+  color-scheme: light;
+
+  --vs-surface: #e6e7ee;
+  --vs-shadow-dark: #babecc;
+  --vs-shadow-light: #ffffff;
+
+  --vs-text-primary: #31343f;
+  --vs-text-muted: #6b7080;
+  --vs-text-subtle: #9498a8;
+
+  --vs-accent: #5b62d6;
+  --vs-accent-soft: color-mix(in oklab, var(--vs-accent) 14%, var(--vs-surface));
+  --vs-accent-contrast: #ffffff;
+
+  --vs-success: #2e9d6b;
+  --vs-warning: #b8801d;
+  --vs-danger: #cf4438;
+
+  --vs-hairline: rgb(0 0 0 / 0.05);
+  --vs-backdrop: rgb(31 33 40 / 0.42);
+
+  --vs-press: 120ms;
+
+  /* No webfonts: the deployment CSP blocks external font hosts, so this is the whole type stack. */
+  --vs-font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --vs-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --vs-shadow-raised: 6px 6px 12px var(--vs-shadow-dark), -6px -6px 12px var(--vs-shadow-light);
+  --vs-shadow-raised-sm: 3px 3px 6px var(--vs-shadow-dark), -3px -3px 6px var(--vs-shadow-light);
+  --vs-shadow-raised-lg:
+    12px 12px 28px var(--vs-shadow-dark), -12px -12px 28px var(--vs-shadow-light);
+  --vs-shadow-inset:
+    inset 5px 5px 10px var(--vs-shadow-dark), inset -5px -5px 10px var(--vs-shadow-light);
+  --vs-shadow-inset-sm:
+    inset 2px 2px 5px var(--vs-shadow-dark), inset -2px -2px 5px var(--vs-shadow-light);
+}
+
+/* `.dark` (0,1,0) never competes with the media block below (0,1,1): an explicit `.light` class
+   switches that block off entirely, so the two can only ever agree. */
+.dark {
+  color-scheme: dark;
+
+  --vs-surface: #22252b;
+  --vs-shadow-dark: #16181d;
+  --vs-shadow-light: rgb(255 255 255 / 0.055);
+
+  --vs-text-primary: #e6e8ef;
+  --vs-text-muted: #a0a5b3;
+  --vs-text-subtle: #757a89;
+
+  --vs-accent: #7d84f2;
+  --vs-accent-soft: color-mix(in oklab, var(--vs-accent) 22%, var(--vs-surface));
+  --vs-accent-contrast: #14161d;
+
+  --vs-success: #4cc48d;
+  --vs-warning: #dda23f;
+  --vs-danger: #ef6a5f;
+
+  --vs-hairline: rgb(255 255 255 / 0.06);
+  --vs-backdrop: rgb(8 9 12 / 0.62);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+
+    --vs-surface: #22252b;
+    --vs-shadow-dark: #16181d;
+    --vs-shadow-light: rgb(255 255 255 / 0.055);
+
+    --vs-text-primary: #e6e8ef;
+    --vs-text-muted: #a0a5b3;
+    --vs-text-subtle: #757a89;
+
+    --vs-accent: #7d84f2;
+    --vs-accent-soft: color-mix(in oklab, var(--vs-accent) 22%, var(--vs-surface));
+    --vs-accent-contrast: #14161d;
+
+    --vs-success: #4cc48d;
+    --vs-warning: #dda23f;
+    --vs-danger: #ef6a5f;
+
+    --vs-hairline: rgb(255 255 255 / 0.06);
+    --vs-backdrop: rgb(8 9 12 / 0.62);
+  }
+}
+
+/* `inline` so every generated utility keeps the var() reference and re-resolves when the
+   theme class flips — a non-inline @theme would bake today's hex into the CSS. */
+@theme inline {
+  --color-surface: var(--vs-surface);
+  --color-surface-raised: var(--vs-surface);
+  --color-surface-sunken: var(--vs-surface);
+
+  --color-text-primary: var(--vs-text-primary);
+  --color-text-muted: var(--vs-text-muted);
+  --color-text-subtle: var(--vs-text-subtle);
+  /* Short aliases for the same three inks: `text-ink`, `text-muted`, `text-subtle`. */
+  --color-ink: var(--vs-text-primary);
+  --color-muted: var(--vs-text-muted);
+  --color-subtle: var(--vs-text-subtle);
+
+  --color-accent: var(--vs-accent);
+  --color-accent-soft: var(--vs-accent-soft);
+  --color-accent-contrast: var(--vs-accent-contrast);
+
+  --color-success: var(--vs-success);
+  --color-warning: var(--vs-warning);
+  --color-danger: var(--vs-danger);
+
+  --color-hairline: var(--vs-hairline);
+  --color-backdrop: var(--vs-backdrop);
+
+  --shadow-neu-raised: var(--vs-shadow-raised);
+  --shadow-neu-raised-sm: var(--vs-shadow-raised-sm);
+  --shadow-neu-raised-lg: var(--vs-shadow-raised-lg);
+  --shadow-neu-inset: var(--vs-shadow-inset);
+  --shadow-neu-inset-sm: var(--vs-shadow-inset-sm);
+
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+
+  --spacing-field: 0.875rem;
+  --spacing-gutter: 1.5rem;
+  --spacing-section: 3rem;
+
+  --font-sans: var(--vs-font-sans);
+  --font-mono: var(--vs-font-mono);
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.65rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.85rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.35rem;
+
+  --animate-neu-shimmer: neu-shimmer 1.6s ease-in-out infinite;
+  --animate-neu-indeterminate: neu-indeterminate 1.4s ease-in-out infinite;
+  --animate-neu-fade-in: neu-fade-in 140ms ease-out;
+  --animate-neu-pop-in: neu-pop-in 160ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes neu-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes neu-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes neu-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes neu-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--vs-surface);
+    color: var(--vs-text-primary);
+    font-family: var(--vs-font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Rule 4: shadows cannot express focus, so the outline is global and unconditional. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background-color: var(--vs-accent-soft);
+    color: var(--vs-text-primary);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--vs-shadow-dark) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--vs-shadow-dark);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Slider: inset track, raised thumb. Vendor pseudo-elements cannot be grouped in one rule —
+     a single unknown selector would drop the whole block — so each engine gets its own. */
+  .neu-range {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 1.5rem;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .neu-range:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .neu-range::-webkit-slider-runnable-track {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--vs-surface);
+    box-shadow: var(--vs-shadow-inset-sm);
+  }
+
+  .neu-range::-moz-range-track {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--vs-surface);
+    box-shadow: var(--vs-shadow-inset-sm);
+  }
+
+  .neu-range::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    margin-top: -0.375rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--vs-surface);
+    box-shadow: var(--vs-shadow-raised-sm);
+    transition:
+      box-shadow var(--vs-press) ease,
+      transform var(--vs-press) ease;
+  }
+
+  .neu-range::-moz-range-thumb {
+    width: 1.25rem;
+    height: 1.25rem;
+    border: none;
+    border-radius: 999px;
+    background: var(--vs-surface);
+    box-shadow: var(--vs-shadow-raised-sm);
+    transition:
+      box-shadow var(--vs-press) ease,
+      transform var(--vs-press) ease;
+  }
+
+  .neu-range:active::-webkit-slider-thumb {
+    box-shadow: var(--vs-shadow-inset-sm);
+    transform: scale(0.92);
+  }
+
+  .neu-range:active::-moz-range-thumb {
+    box-shadow: var(--vs-shadow-inset-sm);
+    transform: scale(0.92);
+  }
+
+  .neu-range:focus-visible {
+    outline: none;
+  }
+
+  .neu-range:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 2px;
+  }
+
+  .neu-range:focus-visible::-moz-range-thumb {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 2px;
+  }
+
+  .neu-shimmer {
+    background-color: var(--vs-surface);
+    background-image: linear-gradient(
+      100deg,
+      transparent 25%,
+      color-mix(in oklab, var(--vs-shadow-light) 70%, transparent) 45%,
+      color-mix(in oklab, var(--vs-shadow-dark) 35%, transparent) 55%,
+      transparent 75%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    /* Spelled out rather than var(--animate-neu-shimmer): @theme inline emits no runtime var. */
+    animation: neu-shimmer 1.6s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .neu-shimmer {
+    background-image: none;
+  }
+}

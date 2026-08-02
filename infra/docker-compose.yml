@@ -1,0 +1,36 @@
+# Local development stack.
+#
+# Only the database runs in Docker — the api and the web app run from pnpm so that
+# tsx/Vite hot reload stays instant:
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#   pnpm dev
+#
+# Mongo is bound to the loopback interface only; it is never reachable from the network.
+
+name: video-studio-dev
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:27017:27017'
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  mongo-data:
+  mongo-config:

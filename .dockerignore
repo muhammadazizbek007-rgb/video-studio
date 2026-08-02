@@ -1,0 +1,38 @@
+# The build context is the repo root for both images. Keep it to sources +
+# manifests + lockfile: everything else either bloats the context or is a secret.
+
+.git
+.github
+.gitignore
+.dockerignore
+
+**/node_modules
+**/dist
+**/build
+**/.output
+**/.turbo
+**/coverage
+
+# Runtime data of the local storage driver — never ship a developer's media.
+**/var
+**/data
+
+# Secrets must never enter a build context.
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+playwright-report
+test-results
+blob-report
+**/.playwright
+
+infra
+docs
+
+**/*.log
+**/.DS_Store
+Thumbs.db
+.vscode
+.idea

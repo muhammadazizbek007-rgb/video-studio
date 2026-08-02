@@ -1,0 +1,263 @@
+# Build the two production images, push them to GHCR, and roll them onto the VPS.
+#
+# Triggers
+#   - CI succeeded on main  -> build the images for that commit, then deploy the SHA tag
+#   - workflow_dispatch     -> with an empty `image_tag`, behaves like the above for the
+#                              current main; with a tag, SKIPS the build and (re)deploys
+#                              that already-published tag — this is how you roll forward
+#                              or roll back to a known image.
+#
+# Required repository secrets
+#   VPS_HOST              hostname or IP of the VPS
+#   VPS_SSH_KEY           PRIVATE key whose public half is in the deploy user's
+#                         authorized_keys (see infra/scripts/provision-vps.sh)
+#   VPS_SSH_KNOWN_HOSTS   output of `ssh-keyscan <host>` — the host key is VERIFIED,
+#                         StrictHostKeyChecking is never disabled
+#
+# Required repository variables
+#   VPS_USER              deploy user on the VPS                  (default: deploy)
+#   DEPLOY_PATH           deployment root on the VPS              (default: /opt/video-studio)
+#   VITE_API_URL          API origin baked into the SPA bundle. EMPTY for the standard
+#                         same-origin deployment (nginx serves the SPA and proxies /api).
+#
+# GHCR access uses the built-in GITHUB_TOKEN — no PAT is stored anywhere. The token is
+# handed to the VPS over the ssh *stdin*, so it never appears in a command line, in a
+# log, or on the server's disk. The private key is the only thing written to a file:
+# 0600, and shredded in an always() step.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Existing image tag to deploy (a commit SHA). Leave empty to build the current main.'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build and push images
+    # Skipped when a dispatch names an existing tag: nothing to build, just deploy it.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.image_tag == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      # A workflow_run fires against the default branch, so github.sha is the branch tip
+      # rather than the commit CI actually validated. Use the triggering run's head.
+      IMAGE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout the validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.IMAGE_SHA }}
+
+      - name: Resolve image coordinates
+        id: meta
+        env:
+          SHA: ${{ env.IMAGE_SHA }}
+        run: |
+          set -euo pipefail
+          # GHCR rejects uppercase in a repository name; org names may contain it.
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "tag=$SHA" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/${owner}/video-studio-api" >> "$GITHUB_OUTPUT"
+          echo "web=ghcr.io/${owner}/video-studio-web" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Both images build from the REPO ROOT context: the api and the web app resolve
+      # @video-studio/shared through the pnpm workspace.
+      - name: Build and push the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.meta.outputs.api }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.api }}:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build and push the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL }}
+          tags: |
+            ${{ steps.meta.outputs.web }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.web }}:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Summarise
+        env:
+          API: ${{ steps.meta.outputs.api }}
+          WEB: ${{ steps.meta.outputs.web }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Images pushed"
+            echo
+            echo '`'"${API}:${TAG}"'`'
+            echo
+            echo '`'"${WEB}:${TAG}"'`'
+            echo
+            echo "Also tagged \`latest\`. The SHA tag is what gets deployed — \`latest\` is a moving target and cannot be rolled back to."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to the VPS
+    needs: [build-and-push]
+    # `always()` because build-and-push is legitimately skipped for a tag redeploy.
+    if: >-
+      always() &&
+      (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Bind to a protected environment so production can require a manual approval.
+    environment:
+      name: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER || 'deploy' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/video-studio' }}
+      SSH_OPTS: -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve the tag to deploy
+        id: tag
+        env:
+          REQUESTED: ${{ inputs.image_tag }}
+          BUILT: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED:-${BUILT:-}}"
+          if [ -z "$tag" ]; then
+            echo '::error::no image tag to deploy (the build was skipped and no image_tag was supplied)'
+            exit 1
+          fi
+          # The dispatch input reaches a remote shell, so constrain it to a tag shape.
+          if ! printf '%s' "$tag" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$'; then
+            echo "::error::'${tag}' is not a valid image tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check the deployment inputs
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?VPS_HOST secret is not set}"
+          : "${VPS_USER:?VPS_USER variable is not set}"
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is not set}"
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${SSH_KEY:?VPS_SSH_KEY secret is not set}"
+          : "${KNOWN_HOSTS:?VPS_SSH_KNOWN_HOSTS secret is not set}"
+          umask 077
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # Keeps the compose file, nginx config and scripts on the box in step with the
+      # repo. `.env` is excluded because deploy.sh owns it (it holds the live tag).
+      - name: Sync the infra tree
+        run: |
+          set -euo pipefail
+          rsync -az --delete --exclude '.env' \
+            -e "ssh -i $HOME/.ssh/deploy_key $SSH_OPTS" \
+            ./infra/ "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/current/"
+          ssh -i "$HOME/.ssh/deploy_key" $SSH_OPTS "${VPS_USER}@${VPS_HOST}" \
+            "chmod +x '${DEPLOY_PATH}/current/scripts/'*.sh"
+
+      # deploy.sh performs the readiness gate itself and exits non-zero when the new tag
+      # never answers /api/health/ready, which fails this step and the workflow.
+      # GHCR_TOKEN arrives on stdin, so it is never visible in the remote process list.
+      - name: Deploy
+        id: deploy
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | ssh -i "$HOME/.ssh/deploy_key" $SSH_OPTS \
+            "${VPS_USER}@${VPS_HOST}" \
+            "GHCR_TOKEN=\"\$(cat)\" APP_ROOT='${DEPLOY_PATH}' '${DEPLOY_PATH}/current/scripts/deploy.sh' '${TAG}'"
+
+      - name: Roll back
+        if: failure() && steps.deploy.outcome == 'failure'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo '::warning::deploy failed — rolling back to the previously live tag'
+          printf '%s' "$GHCR_TOKEN" | ssh -i "$HOME/.ssh/deploy_key" $SSH_OPTS \
+            "${VPS_USER}@${VPS_HOST}" \
+            "GHCR_TOKEN=\"\$(cat)\" APP_ROOT='${DEPLOY_PATH}' '${DEPLOY_PATH}/current/scripts/rollback.sh'"
+
+      - name: Remove the SSH key
+        if: always()
+        run: |
+          shred -u ~/.ssh/deploy_key 2>/dev/null || rm -f ~/.ssh/deploy_key
+          rm -f ~/.ssh/known_hosts
+
+      - name: Summarise
+        if: always()
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          RESULT: ${{ steps.deploy.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deploy"
+            echo
+            echo "| tag | result |"
+            echo "| --- | --- |"
+            echo "| \`${TAG:-unresolved}\` | ${RESULT:-skipped} |"
+          } >> "$GITHUB_STEP_SUMMARY"

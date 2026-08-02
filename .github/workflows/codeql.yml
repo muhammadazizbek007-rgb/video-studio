@@ -1,0 +1,50 @@
+# Static analysis for every TypeScript file in the workspace.
+#
+# `build-mode: none` is the correct mode for javascript-typescript: CodeQL reads the
+# sources directly, so it never has to install dependencies or run turbo — which also
+# means it cannot execute a malicious postinstall from a fork's pull request.
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Re-scan the unchanged main branch so newly published queries still find old code.
+  schedule:
+    - cron: '17 4 * * 1'
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Uploading the SARIF results to the Security tab needs write here; everything
+      # else stays read-only. `actions: read` is what the action uses to look up the
+      # workflow run it belongs to on private repositories.
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-and-quality
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
