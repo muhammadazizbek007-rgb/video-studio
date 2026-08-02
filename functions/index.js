@@ -3,11 +3,7 @@ const functions = require('firebase-functions');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { admin, db } = require('./adminApp');
 
-let _seedanceProvider, _providerFactory, _videoProviderTypes;
-function getSeedanceProvider() {
-  if (!_seedanceProvider) _seedanceProvider = require('./src/providers/seedanceProvider');
-  return _seedanceProvider;
-}
+let _providerFactory, _videoProviderTypes;
 function getProviderFactory() {
   if (!_providerFactory) _providerFactory = require('./src/providers/providerFactory');
   return _providerFactory;
@@ -74,77 +70,17 @@ function requireEnumField(data, fieldName, allowedValues) {
   return value;
 }
 
+// Union of every duration any active model accepts; each provider snaps the
+// value to what its own model actually supports (Veo: 4/6/8, JSON2Video: up to 15).
+const ALLOWED_DURATIONS = [4, 5, 6, 7, 8, 10, 15];
+
 function requireDuration(data) {
   const duration = Number(data?.duration);
-  if (![5, 10, 15].includes(duration)) throw new HttpsError('invalid-argument', 'duration is invalid.');
+  if (!ALLOWED_DURATIONS.includes(duration)) throw new HttpsError('invalid-argument', 'duration is invalid.');
   return duration;
 }
 
-// ─── Credits ─────────────────────────────────────────────────────────────────
-
-const MODEL_CREDITS = {
-  'wavespeed-wan': 10,
-  'wavespeed-wan-i2v': 10,
-  'seedance-2': 25,
-  'seedance-2-fast': 15,
-  'replicate-wan-t2v': 10,
-  'replicate-wan-i2v': 10,
-  'replicate-kling': 20,
-  'replicate-luma': 15,
-  'huggingface-cogvideox': 10,
-  'huggingface-opensora': 10,
-  'cogvideox-free': 5,
-  'ltx-fast': 5,
-  'svd': 5,
-  'leonardo-motion': 15,
-  'json2video': 10,
-};
-
-const FREE_CREDITS_ON_SIGNUP = 100;
-
-function getModelCreditCost(modelId) {
-  return MODEL_CREDITS[modelId] || 10;
-}
-
-async function checkVideoCredits(userId, modelId) {
-  const cost = getModelCreditCost(modelId);
-  const userRef = db.collection('users').doc(userId);
-  const snap = await userRef.get();
-
-  if (!snap.exists || snap.data().credits === undefined) {
-    await userRef.set({ credits: FREE_CREDITS_ON_SIGNUP, creditsGrantedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    await db.collection('creditLogs').add({
-      userId, type: 'signup', amount: FREE_CREDITS_ON_SIGNUP,
-      balanceBefore: 0, balanceAfter: FREE_CREDITS_ON_SIGNUP,
-      description: 'Приветственные кредиты',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    return { ok: true, remaining: FREE_CREDITS_ON_SIGNUP, cost };
-  }
-
-  const credits = Number(snap.data().credits || 0);
-  if (credits < cost) return { ok: false, remaining: credits, cost, reason: `Недостаточно кредитов. Нужно ${cost}, доступно ${credits}.` };
-  return { ok: true, remaining: credits, cost };
-}
-
-async function deductCredits(userId, modelId) {
-  const cost = getModelCreditCost(modelId);
-  const userRef = db.collection('users').doc(userId);
-  const logRef = db.collection('creditLogs').doc();
-  let balanceBefore = 0, balanceAfter = 0;
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(userRef);
-    balanceBefore = Number(snap.data()?.credits || 0);
-    balanceAfter = Math.max(0, balanceBefore - cost);
-    tx.update(userRef, { credits: balanceAfter, creditsUpdatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.set(logRef, {
-      userId, type: 'deduction', amount: -cost, modelId,
-      balanceBefore, balanceAfter,
-      description: `Генерация видео: ${modelId}`,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  });
-}
+// ─── Rate limiting ───────────────────────────────────────────────────────────
 
 async function checkRateLimit(userId) {
   const now = Date.now();
@@ -178,13 +114,6 @@ function ensureAllowedVideoStudioEmail(authContext) {
   }
 }
 
-function getSeedanceProviderFlavor(baseUrl) {
-  const url = String(baseUrl || '').trim();
-  if (url.includes('seedanceapi.org')) return 'seedanceapi_v2';
-  if (url.includes('seedance2.app')) return 'seedance2_app';
-  if (url.includes('seedance2.movie')) return 'seedance2_movie';
-  return url ? 'seedance2_movie' : 'unknown';
-}
 
 // ─── Anthropic helper ─────────────────────────────────────────────────────────
 
@@ -215,19 +144,43 @@ function callAnthropicApi(apiKey, body) {
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
-exports.testSeedanceConnection = onCall({ cors: true, timeoutSeconds: 30 }, async (request) => {
+exports.testVertexConnection = onCall({ cors: true, timeoutSeconds: 60 }, async (request) => {
   ensureCallableAuth(request.auth);
   ensureAllowedVideoStudioEmail(request.auth);
-  const baseUrl = String(process.env.SEEDANCE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  const hasApiKey = Boolean(String(process.env.SEEDANCE_API_KEY || '').trim());
-  const providerFlavor = getSeedanceProviderFlavor(baseUrl);
-  const missing = [];
-  if (!baseUrl) missing.push('SEEDANCE_API_BASE_URL');
-  if (!hasApiKey) missing.push('SEEDANCE_API_KEY');
-  if (missing.length > 0) {
-    return { mockMode: false, liveTestMode: false, providerFlavor, baseUrl, hasApiKey, status: 'error', message: `Missing config: ${missing.join(', ')}.` };
+
+  const vertex = require('./src/providers/google/vertexClient');
+  const { VEO_MODEL_IDS } = require('./src/providers/google/veoProvider');
+  const { IMAGE_MODEL_IDS } = require('./src/providers/google/imagenProvider');
+
+  let projectId = '';
+  let location = '';
+  try {
+    projectId = vertex.getProjectId();
+    location = vertex.getLocation();
+  } catch (err) {
+    return {
+      status: 'error', projectId: '', location: '', tokenOk: false,
+      videoModels: VEO_MODEL_IDS, imageModels: IMAGE_MODEL_IDS,
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
-  return { mockMode: false, liveTestMode: false, providerFlavor, baseUrl, hasApiKey, status: 'ok', message: 'Seedance API configured.' };
+
+  // Verifies the service account can actually mint a cloud-platform token
+  try {
+    await vertex.getAccessToken();
+  } catch (err) {
+    return {
+      status: 'error', projectId, location, tokenOk: false,
+      videoModels: VEO_MODEL_IDS, imageModels: IMAGE_MODEL_IDS,
+      message: `Не удалось получить токен доступа: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  return {
+    status: 'ok', projectId, location, tokenOk: true,
+    videoModels: VEO_MODEL_IDS, imageModels: IMAGE_MODEL_IDS,
+    message: `Vertex AI подключён: проект ${projectId}, регион ${location}.`,
+  };
 });
 
 exports.testProviderConnection = onCall({ cors: true, timeoutSeconds: 30 }, async (request) => {
@@ -332,60 +285,6 @@ exports.getMcpToken = onCall({ cors: true, timeoutSeconds: 10 }, async (request)
   return { mcpUrl: `https://mcpvideostudio-5ewqb3guda-uc.a.run.app?token=${token}` };
 });
 
-exports.getUserCredits = onCall({ cors: true, timeoutSeconds: 10 }, async (request) => {
-  const userId = ensureCallableAuth(request.auth);
-  const snap = await db.collection('users').doc(userId).get();
-  return { credits: snap.exists ? Number(snap.data().credits ?? 0) : 0 };
-});
-
-exports.grantCredits = onCall({ cors: true, timeoutSeconds: 30 }, async (request) => {
-  const callerId = ensureCallableAuth(request.auth);
-  if (!request.auth.token.admin) throw new HttpsError('permission-denied', 'Только администратор может выдавать кредиты.');
-  const targetUserId = requireStringField(request.data, 'userId', 128);
-  const amount = Number(request.data?.amount);
-  if (!Number.isInteger(amount) || amount <= 0 || amount > 100000) throw new HttpsError('invalid-argument', 'amount должен быть от 1 до 100000.');
-  const reason = String(request.data?.reason || 'Выдано администратором').trim().slice(0, 200);
-  const userRef = db.collection('users').doc(targetUserId);
-  const logRef = db.collection('creditLogs').doc();
-  let balanceBefore = 0, balanceAfter = 0;
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(userRef);
-    balanceBefore = Number(snap.data()?.credits || 0);
-    balanceAfter = balanceBefore + amount;
-    tx.set(userRef, { credits: balanceAfter, creditsUpdatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    tx.set(logRef, { userId: targetUserId, type: 'grant', amount, balanceBefore, balanceAfter, description: reason, grantedBy: callerId, createdAt: admin.firestore.FieldValue.serverTimestamp() });
-  });
-  return { success: true, balanceBefore, balanceAfter, amount };
-});
-
-exports.redeemPromoCode = onCall({ cors: true, timeoutSeconds: 30 }, async (request) => {
-  const userId = ensureCallableAuth(request.auth);
-  const code = requireStringField(request.data, 'code', 64).toUpperCase();
-  const codeRef = db.collection('promoCodes').doc(code);
-  const userRef = db.collection('users').doc(userId);
-  const logRef = db.collection('creditLogs').doc();
-  let creditsGranted = 0;
-  await db.runTransaction(async (tx) => {
-    const codeSnap = await tx.get(codeRef);
-    if (!codeSnap.exists) throw new HttpsError('not-found', 'Промокод не найден.');
-    const codeData = codeSnap.data();
-    if (!codeData.active) throw new HttpsError('failed-precondition', 'Этот промокод уже неактивен.');
-    const usedBy = codeData.usedBy || [];
-    if (usedBy.includes(userId)) throw new HttpsError('already-exists', 'Вы уже использовали этот промокод.');
-    const maxUses = Number(codeData.maxUses || 0);
-    if (maxUses > 0 && usedBy.length >= maxUses) throw new HttpsError('resource-exhausted', 'Этот промокод исчерпан.');
-    creditsGranted = Number(codeData.credits || 0);
-    if (creditsGranted <= 0) throw new HttpsError('invalid-argument', 'Промокод не содержит кредитов.');
-    const userSnap = await tx.get(userRef);
-    const balanceBefore = Number(userSnap.data()?.credits || 0);
-    const balanceAfter = balanceBefore + creditsGranted;
-    tx.set(userRef, { credits: balanceAfter, creditsUpdatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    tx.update(codeRef, { usedBy: admin.firestore.FieldValue.arrayUnion(userId), usedCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.set(logRef, { userId, type: 'promo', amount: creditsGranted, promoCode: code, balanceBefore, balanceAfter, description: `Промокод: ${code}`, createdAt: admin.firestore.FieldValue.serverTimestamp() });
-  });
-  return { success: true, creditsGranted, message: `Начислено ${creditsGranted} кредитов!` };
-});
-
 exports.startVideoGeneration = onCall({ cors: true, timeoutSeconds: 1800, memory: '1GiB' }, async (request) => {
   const userId = ensureCallableAuth(request.auth);
   const data = request.data || {};
@@ -415,11 +314,6 @@ exports.startVideoGeneration = onCall({ cors: true, timeoutSeconds: 1800, memory
   if (existing.userId !== userId) throw new HttpsError('permission-denied', 'This generation belongs to another user.');
 
   await checkRateLimit(userId);
-  const credits = await checkVideoCredits(userId, modelId);
-  if (!credits.ok) {
-    await generationRef.update({ status: 'failed', errorMessage: credits.reason || 'Not enough credits.', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    throw new HttpsError('resource-exhausted', credits.reason || 'Not enough video credits.');
-  }
 
   const providerId = getVideoProviderTypes().MODEL_TO_PROVIDER[modelId] || 'unknown';
   const effectivePrompt = enrichedPrompt || prompt;
@@ -443,15 +337,12 @@ exports.startVideoGeneration = onCall({ cors: true, timeoutSeconds: 1800, memory
   try {
     const bucket = admin.storage().bucket();
     const result = await generateVideo({ bucket, request: providerRequest });
-    await deductCredits(userId, modelId);
-    const updatedSnap = await db.collection('users').doc(userId).get();
-    const creditsAfter = Number(updatedSnap.data()?.credits ?? credits.remaining - credits.cost);
     await generationRef.update(cleanUndefinedValues({
       status: 'completed', resultVideoUrl: result.resultVideoUrl,
       resultStoragePath: result.storagePath, provider: providerRequest.provider,
       providerMockMode: false, updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }));
-    return { ok: true, generationId, status: 'completed', resultVideoUrl: result.resultVideoUrl, resultStoragePath: result.storagePath, mock: false, creditsRemaining: creditsAfter };
+    return { ok: true, generationId, status: 'completed', resultVideoUrl: result.resultVideoUrl, resultStoragePath: result.storagePath, mock: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('startVideoGeneration failed:', { generationId, userId, modelId, mock: mockForModel, message, stack: error?.stack || '' });

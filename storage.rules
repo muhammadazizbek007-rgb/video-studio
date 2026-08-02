@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Uploads are always scoped to the signed-in user's own folder.
+// Generated results are written by the Worker via the Admin SDK and are read
+// through Firebase download tokens, so they need no public read rule here.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isAllowedUpload() {
+      return request.resource.size < 25 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType.matches('video/.*')
+            || request.resource.contentType.matches('audio/.*'));
+    }
+
+    // Reference files uploaded for a generation, plus the generated result
+    match /video-generations/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isAllowedUpload();
+    }
+
+    // Images for reusable elements (characters, locations, props)
+    match /video-elements/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isAllowedUpload();
+    }
+
+    // Images produced by Imagen / Gemini via the Worker
+    match /image-generations/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

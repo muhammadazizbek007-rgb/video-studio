@@ -18,4 +18,23 @@ export const runtimeFirebaseConfig = {
 export const firestoreDatabaseId =
   envValue('VITE_FIREBASE_DATABASE_ID') || '(default)';
 
+function assertConfig() {
+  const { apiKey, projectId, appId } = runtimeFirebaseConfig;
+  const hint = 'Check .env.local and restart the Vite dev server.';
+
+  if (!apiKey || apiKey.length < 30 || !apiKey.startsWith('AIzaSy')) {
+    throw new Error(
+      `Firebase config invalid: VITE_FIREBASE_API_KEY missing or placeholder. ${hint}`,
+    );
+  }
+  if (!projectId) {
+    throw new Error(`Firebase config invalid: VITE_FIREBASE_PROJECT_ID missing. ${hint}`);
+  }
+  if (!appId) {
+    throw new Error(`Firebase config invalid: VITE_FIREBASE_APP_ID missing. ${hint}`);
+  }
+}
+
+assertConfig();
+
 export const app = initializeApp(runtimeFirebaseConfig);

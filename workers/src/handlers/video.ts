@@ -1,63 +1,22 @@
 import { HttpsError, type HandlerContext } from '../types';
-import { ensureUserCredits, deductCredits, checkRateLimit } from './credits';
-import { createReplicatePrediction, checkReplicatePrediction } from '../providers';
+import { checkRateLimit } from './rateLimit';
+import {
+  VEO_MODEL_IDS,
+  getVeoModelSpec,
+  startVeoOperation,
+  checkVeoOperation,
+  type VideoRequest,
+} from '../providers';
 
-const ALL_MODEL_IDS = [
-  'wavespeed-wan', 'wavespeed-wan-i2v', 'seedance-2', 'seedance-2-fast',
-  'replicate-wan-t2v', 'replicate-wan-i2v', 'replicate-kling', 'replicate-luma',
-  'huggingface-cogvideox', 'huggingface-opensora', 'cogvideox-free',
-  'ltx-fast', 'svd', 'leonardo-motion', 'json2video',
-];
+const ALL_MODEL_IDS = [...VEO_MODEL_IDS, 'json2video'];
 
 const MODEL_TO_PROVIDER: Record<string, string> = {
-  'wavespeed-wan': 'wavespeed', 'wavespeed-wan-i2v': 'wavespeed',
-  'seedance-2': 'replicate', 'seedance-2-fast': 'replicate',
-  'replicate-wan-t2v': 'replicate', 'replicate-wan-i2v': 'replicate',
-  'replicate-kling': 'replicate', 'replicate-luma': 'replicate',
-  'huggingface-cogvideox': 'huggingface', 'huggingface-opensora': 'huggingface',
-  'cogvideox-free': 'huggingface', 'ltx-fast': 'huggingface', 'svd': 'huggingface',
-  'leonardo-motion': 'leonardo', 'json2video': 'json2video',
+  ...Object.fromEntries(VEO_MODEL_IDS.map((id) => [id, 'veo'])),
+  json2video: 'json2video',
 };
 
-// Models that use Replicate — client polls status instead of worker waiting
-const REPLICATE_MODEL_IDS = new Set([
-  'seedance-2', 'seedance-2-fast',
-  'replicate-wan-t2v', 'replicate-wan-i2v',
-  'replicate-kling', 'replicate-luma',
-]);
-
-interface VideoRequest {
-  generationId: string; prompt: string; enrichedPrompt?: string;
-  modelId: string; mode: string; aspectRatio: string; duration: number;
-  stylePreset: string; cameraMotion: string;
-  referenceImageUrl?: string; referenceVideoUrl?: string; referenceAudioUrl?: string;
-  referenceImageUrls?: string[]; referenceMode?: string;
-  lastFrameImageUrl?: string;
-  elements?: unknown[]; referenceCount?: number;
-}
-
-async function runNonReplicateGeneration(ctx: HandlerContext, userId: string, req: VideoRequest): Promise<void> {
-  try {
-    const { generateVideo } = await import('../providers');
-    const result = await generateVideo(ctx.env, req);
-
-    await ctx.db.upsertWithTransforms('video_generations', req.generationId, {
-      status: 'completed',
-      resultVideoUrl: result.resultVideoUrl,
-      resultStoragePath: result.storagePath || null,
-      provider: MODEL_TO_PROVIDER[req.modelId] || 'unknown',
-      providerMockMode: false,
-    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-    await deductCredits(ctx, userId, req.modelId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('Video generation failed:', { generationId: req.generationId, userId, modelId: req.modelId, message });
-    await ctx.db.upsertWithTransforms('video_generations', req.generationId, {
-      status: 'failed', errorMessage: message,
-    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-  }
-}
+/** Veo is long-running: the worker starts it, the client polls checkVideoGeneration. */
+const VEO_MODEL_SET = new Set(VEO_MODEL_IDS);
 
 export async function handleStartVideoGeneration(ctx: HandlerContext, data: unknown) {
   if (!ctx.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in is required.');
@@ -77,31 +36,23 @@ export async function handleStartVideoGeneration(ctx: HandlerContext, data: unkn
   if (existing.userId !== userId) throw new HttpsError('permission-denied', 'This generation belongs to another user.');
 
   await checkRateLimit(ctx, userId);
-  const credits = await ensureUserCredits(ctx, userId, modelId);
-  if (!credits.ok) {
-    await ctx.db.upsertWithTransforms('video_generations', generationId, {
-      status: 'failed', errorMessage: credits.reason || 'Not enough credits.',
-    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-    throw new HttpsError('resource-exhausted', credits.reason || 'Not enough video credits.');
-  }
 
   const req: VideoRequest = {
     generationId,
+    userId,
     prompt,
     enrichedPrompt: d?.enrichedPrompt ? String(d.enrichedPrompt) : undefined,
     modelId,
     mode: String(d?.mode || 'text_to_video'),
     aspectRatio: String(d?.aspectRatio || '16:9'),
-    duration: Number(d?.duration || 5),
+    duration: Number(d?.duration || 8),
     stylePreset: String(d?.stylePreset || 'Cinematic'),
     cameraMotion: String(d?.cameraMotion || 'Static'),
     referenceImageUrl: d?.referenceImageUrl ? String(d.referenceImageUrl) : undefined,
     referenceVideoUrl: d?.referenceVideoUrl ? String(d.referenceVideoUrl) : undefined,
     referenceAudioUrl: d?.referenceAudioUrl ? String(d.referenceAudioUrl) : undefined,
     referenceImageUrls: Array.isArray(d?.referenceImageUrls) ? (d.referenceImageUrls as string[]) : undefined,
-    referenceMode: d?.referenceMode ? String(d.referenceMode) : undefined,
     lastFrameImageUrl: d?.lastFrameImageUrl ? String(d.lastFrameImageUrl) : undefined,
-    referenceCount: d?.referenceCount ? Number(d.referenceCount) : 0,
   };
 
   // Strip data: URLs before saving to Firestore (1MB field limit)
@@ -115,42 +66,36 @@ export async function handleStartVideoGeneration(ctx: HandlerContext, data: unkn
     Object.entries(req).map(([k, v]) => [k, stripDataUrls(v)]).filter(([, v]) => v !== undefined)
   );
 
-  if (REPLICATE_MODEL_IDS.has(modelId)) {
-    // ── Replicate path: create prediction immediately, client polls status ──
-    const apiToken = String(ctx.env.REPLICATE_API_TOKEN || '').trim();
-    if (!apiToken) throw new HttpsError('internal', 'REPLICATE_API_TOKEN not configured');
-
-    let predictionId: string;
-    try {
-      predictionId = await createReplicatePrediction(apiToken, modelId, req);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await ctx.db.upsertWithTransforms('video_generations', generationId, {
-        status: 'failed', errorMessage: msg,
-      }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-      throw new HttpsError('internal', msg);
-    }
-
-    await ctx.db.upsertWithTransforms('video_generations', generationId, {
-      ...firestoreReq, status: 'processing',
-      replicatePredictionId: predictionId,
-      provider: 'replicate',
-    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-    return { ok: true, generationId, status: 'processing', replicatePredictionId: predictionId };
+  if (!VEO_MODEL_SET.has(modelId)) {
+    throw new HttpsError('invalid-argument', `Model ${modelId} is not available through the Cloudflare Worker. Use the Firebase Function path.`);
   }
 
-  // ── Non-Replicate path: worker polls in background (fast providers) ──
+  let operationName: string;
+  let vertexModel: string;
+  try {
+    const started = await startVeoOperation(ctx.env, req);
+    operationName = started.operationName;
+    vertexModel = started.vertexModel;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await ctx.db.upsertWithTransforms('video_generations', generationId, {
+      status: 'failed', errorMessage: msg,
+    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+    throw new HttpsError('internal', msg);
+  }
+
   await ctx.db.upsertWithTransforms('video_generations', generationId, {
-    ...firestoreReq, status: 'processing',
-    provider: MODEL_TO_PROVIDER[modelId] || 'unknown',
+    ...firestoreReq,
+    status: 'processing',
+    provider: MODEL_TO_PROVIDER[modelId],
+    veoOperationName: operationName,
+    veoVertexModel: vertexModel,
   }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
 
-  ctx.ctx.waitUntil(runNonReplicateGeneration(ctx, userId, req));
-  return { ok: true, generationId, status: 'processing' };
+  return { ok: true, generationId, status: 'processing', operationName };
 }
 
-// Client calls this every ~5s to check Replicate prediction status
+// Client calls this every ~5s to check the Veo operation
 export async function handleCheckVideoGeneration(ctx: HandlerContext, data: unknown) {
   if (!ctx.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in is required.');
 
@@ -167,27 +112,29 @@ export async function handleCheckVideoGeneration(ctx: HandlerContext, data: unkn
     return { status: doc.status, resultVideoUrl: doc.resultVideoUrl ?? null, error: doc.errorMessage ?? null };
   }
 
-  const predictionId = String(doc.replicatePredictionId || '').trim();
-  if (!predictionId) return { status: doc.status };
+  const operationName = String(doc.veoOperationName || '').trim();
+  const vertexModel = String(doc.veoVertexModel || '').trim();
+  if (!operationName || !vertexModel) return { status: doc.status };
 
-  const apiToken = String(ctx.env.REPLICATE_API_TOKEN || '').trim();
-  const result = await checkReplicatePrediction(apiToken, predictionId);
+  const result = await checkVeoOperation(ctx.env, vertexModel, operationName, {
+    userId: String(doc.userId),
+    generationId,
+  });
 
   if (result.status === 'completed' && result.videoUrl) {
     await ctx.db.upsertWithTransforms('video_generations', generationId, {
       status: 'completed',
       resultVideoUrl: result.videoUrl,
-      provider: 'replicate',
+      resultStoragePath: result.storagePath || null,
+      provider: 'veo',
     }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
 
-    // Deduct credits after confirmed completion
-    await deductCredits(ctx, doc.userId as string, doc.modelId as string);
     return { status: 'completed', resultVideoUrl: result.videoUrl, error: null };
   }
 
   if (result.status === 'failed') {
     await ctx.db.upsertWithTransforms('video_generations', generationId, {
-      status: 'failed', errorMessage: result.error || 'Replicate failed',
+      status: 'failed', errorMessage: result.error || 'Veo generation failed',
     }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
     return { status: 'failed', resultVideoUrl: null, error: result.error };
   }
@@ -195,21 +142,52 @@ export async function handleCheckVideoGeneration(ctx: HandlerContext, data: unkn
   return { status: 'processing', resultVideoUrl: null, error: null };
 }
 
-export async function handleTestSeedanceConnection(ctx: HandlerContext, _data: unknown) {
+export async function handleTestVertexConnection(ctx: HandlerContext, _data: unknown) {
   if (!ctx.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in is required.');
-  const baseUrl = String(ctx.env.SEEDANCE_API_BASE_URL || '').trim();
-  const hasApiKey = Boolean(String(ctx.env.SEEDANCE_API_KEY || '').trim());
-  return { mockMode: false, liveTestMode: false, baseUrl, hasApiKey, status: 'ok', message: 'Seedance API configured.' };
+
+  const projectId = String(ctx.env.VERTEX_PROJECT_ID || ctx.env.FIREBASE_PROJECT_ID || '').trim();
+  const location = String(ctx.env.VERTEX_LOCATION || 'us-central1').trim();
+  const hasServiceAccount = Boolean(String(ctx.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim());
+
+  if (!projectId || !hasServiceAccount) {
+    const missing = [!projectId && 'VERTEX_PROJECT_ID', !hasServiceAccount && 'FIREBASE_SERVICE_ACCOUNT_JSON']
+      .filter(Boolean).join(', ');
+    return {
+      status: 'error', projectId, location, tokenOk: false,
+      videoModels: VEO_MODEL_IDS,
+      message: `Не задано: ${missing}.`,
+    };
+  }
+
+  // Confirms the model registry resolves and credentials are present
+  try {
+    getVeoModelSpec(VEO_MODEL_IDS[0]);
+  } catch (err) {
+    return {
+      status: 'error', projectId, location, tokenOk: false,
+      videoModels: VEO_MODEL_IDS,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  return {
+    status: 'ok', projectId, location, tokenOk: true,
+    videoModels: VEO_MODEL_IDS,
+    message: `Vertex AI настроен: проект ${projectId}, регион ${location}.`,
+  };
 }
 
 export async function handleTestProviderConnection(ctx: HandlerContext, _data: unknown) {
   if (!ctx.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in is required.');
+  const vertexReady = Boolean(
+    String(ctx.env.VERTEX_PROJECT_ID || ctx.env.FIREBASE_PROJECT_ID || '').trim() &&
+    String(ctx.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim(),
+  );
   return {
-    wavespeed: { configured: Boolean(ctx.env.WAVESPEED_API_KEY), mockMode: false },
-    seedance: { configured: Boolean(ctx.env.SEEDANCE_API_KEY), mockMode: false },
-    replicate: { configured: Boolean(ctx.env.REPLICATE_API_TOKEN), mockMode: false },
-    huggingface: { configured: Boolean(ctx.env.HUGGINGFACE_API_TOKEN), mockMode: false },
-    leonardo: { configured: Boolean(ctx.env.LEONARDO_API_KEY), mockMode: false },
-    json2video: { configured: Boolean(ctx.env.JSON2VIDEO_API_KEY), mockMode: false },
+    providers: {
+      veo: { name: 'Google Veo (Vertex AI)', configured: vertexReady, mockMode: false, status: vertexReady ? 'ok' : 'not_configured' },
+      imagen: { name: 'Google Imagen (Vertex AI)', configured: vertexReady, mockMode: false, status: vertexReady ? 'ok' : 'not_configured' },
+      json2video: { name: 'JSON2Video (slideshow)', configured: Boolean(ctx.env.JSON2VIDEO_API_KEY), mockMode: false, status: ctx.env.JSON2VIDEO_API_KEY ? 'ok' : 'not_configured' },
+    },
   };
 }

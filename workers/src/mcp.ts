@@ -1,35 +1,31 @@
 import { Firestore } from './firestore';
 import { HttpsError } from './types';
 import type { Env } from './types';
-import { generateVideo, createReplicatePrediction, checkReplicatePrediction } from './providers';
-import { ensureUserCredits, deductCredits, checkRateLimit } from './handlers/credits';
+import {
+  startVeoOperation, checkVeoOperation, generateGoogleImage,
+  VEO_MODEL_IDS, IMAGE_MODEL_IDS, DEFAULT_IMAGE_MODEL,
+} from './providers';
+import { checkRateLimit } from './handlers/rateLimit';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MODEL_CATALOG = [
-  { id: 'seedance-2', name: 'Seedance 2.0 (ByteDance)', type: 'video', credits: 25, status: 'ready', description: 'Best quality, up to 15s, built-in audio, 720p — default' },
-  { id: 'seedance-2-i2v', name: 'Seedance 2.0 I2V', type: 'video', credits: 25, status: 'ready', description: 'Image-to-video with audio, 720p' },
-  { id: 'replicate-wan-t2v', name: 'MiniMax Video-01', type: 'video', credits: 10, status: 'ready', description: 'Fast text-to-video, 6s' },
-  { id: 'replicate-wan-i2v', name: 'MiniMax Video-01 I2V', type: 'video', credits: 10, status: 'ready', description: 'Fast image-to-video, 6s' },
-  { id: 'replicate-kling', name: 'HunyuanVideo', type: 'video', credits: 20, status: 'ready', description: 'High quality video by Tencent' },
-  { id: 'replicate-luma', name: 'MiniMax Video-01 Live', type: 'video', credits: 15, status: 'ready', description: 'Animated/Live2D video' },
-  { id: 'wavespeed-wan', name: 'WaveSpeed WAN 2.1 T2V', type: 'video', credits: 10, status: 'needs_key', description: 'Ultra-fast — needs WAVESPEED_API_KEY' },
-  { id: 'wavespeed-wan-i2v', name: 'WaveSpeed WAN 2.1 I2V', type: 'video', credits: 10, status: 'needs_key', description: 'Ultra-fast image-to-video — needs WAVESPEED_API_KEY' },
-  { id: 'seedance-2', name: 'Seedance 2.0', type: 'video', credits: 25, status: 'needs_key', description: 'Best quality, up to 15s — needs SEEDANCE_API_KEY' },
-  { id: 'seedance-2-fast', name: 'Seedance 2.0 Fast', type: 'video', credits: 15, status: 'needs_key', description: 'Fast Seedance — needs SEEDANCE_API_KEY' },
-  { id: 'ltx-fast', name: 'LTX Video', type: 'video', credits: 5, status: 'needs_key', description: 'Lightweight — needs HUGGINGFACE_API_TOKEN' },
-  { id: 'flux-schnell', name: 'FLUX Schnell', type: 'image', credits: 2, status: 'ready', description: 'Fast image generation via Pollinations — works now' },
-  { id: 'flux-dev', name: 'FLUX Dev', type: 'image', credits: 5, status: 'ready', description: 'High quality image via Replicate — works now' },
-];
+const DEFAULT_VIDEO_MODEL = 'veo-3.1-fast';
 
-const IMAGE_CREDITS: Record<string, number> = {
-  generate_image: 2,
-  upscale_image: 5,
-  upscale_video: 15,
-  remove_background: 3,
-  outpaint_image: 5,
-  video_analysis: 5,
-};
+const MODEL_CATALOG = [
+  // ── Video: Google Veo via Vertex AI ────────────────────────────────────────
+  { id: 'veo-3.1', name: 'Google Veo 3.1', type: 'video', status: 'ready', description: 'Highest quality, native audio, 1080p, 4/6/8s' },
+  { id: 'veo-3.1-fast', name: 'Google Veo 3.1 Fast', type: 'video', status: 'ready', description: 'Faster Veo 3.1, native audio — default' },
+  { id: 'veo-3.0', name: 'Google Veo 3', type: 'video', status: 'ready', description: 'Veo 3 with native audio, 1080p' },
+  { id: 'veo-3.0-fast', name: 'Google Veo 3 Fast', type: 'video', status: 'ready', description: 'Fast Veo 3, native audio' },
+  { id: 'veo-2.0', name: 'Google Veo 2', type: 'video', status: 'ready', description: 'Veo 2, 720p, no audio track' },
+  { id: 'json2video', name: 'JSON2Video (slideshow)', type: 'video', status: 'needs_key', description: 'Template slideshow from photo + text — not AI generation' },
+  // ── Image: Google Imagen / Gemini Image via Vertex AI ──────────────────────
+  { id: 'imagen-4', name: 'Google Imagen 4', type: 'image', status: 'ready', description: 'Photorealistic text-to-image, accurate text rendering — default' },
+  { id: 'imagen-4-fast', name: 'Google Imagen 4 Fast', type: 'image', status: 'ready', description: 'Faster Imagen 4' },
+  { id: 'imagen-4-ultra', name: 'Google Imagen 4 Ultra', type: 'image', status: 'ready', description: 'Highest quality Imagen 4' },
+  { id: 'imagen-3', name: 'Google Imagen 3', type: 'image', status: 'ready', description: 'Previous generation Imagen' },
+  { id: 'gemini-image', name: 'Google Gemini Image', type: 'image', status: 'ready', description: 'Conversational image editing — background swap, object removal, restyling' },
+];
 
 const STYLE_PRESETS = [
   { id: 'Cinematic', description: 'Film-like quality with dramatic lighting' },
@@ -51,11 +47,8 @@ const CAMERA_MOTIONS = [
 ];
 
 const MODEL_TO_PROVIDER: Record<string, string> = {
-  'wavespeed-wan': 'wavespeed', 'wavespeed-wan-i2v': 'wavespeed',
-  'seedance-2': 'replicate', 'seedance-2-i2v': 'replicate', 'seedance-2-fast': 'seedance',
-  'replicate-wan-t2v': 'replicate', 'replicate-wan-i2v': 'replicate',
-  'replicate-kling': 'replicate', 'replicate-luma': 'replicate',
-  'huggingface-cogvideox': 'huggingface', 'ltx-fast': 'huggingface', 'svd': 'huggingface',
+  ...Object.fromEntries(VEO_MODEL_IDS.map((id) => [id, 'veo'])),
+  json2video: 'json2video',
 };
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
@@ -63,14 +56,14 @@ const MODEL_TO_PROVIDER: Record<string, string> = {
 const TOOLS = [
   {
     name: 'generate_video',
-    description: 'Generate a video from text prompt or reference image using AI models.',
+    description: 'Generate a video from a text prompt or reference image using Google Veo.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Text description of the video' },
-        model: { type: 'string', description: 'Model: seedance-2 (default, best quality + audio), seedance-2-i2v (image-to-video), replicate-wan-t2v (fast), replicate-kling (cinematic)', default: 'seedance-2' },
-        aspect_ratio: { type: 'string', description: '9:16, 16:9, 1:1, 3:4, 4:3, 21:9, adaptive', default: '9:16' },
-        duration: { type: 'number', description: 'Duration in seconds: 5, 10, or 15', default: 5 },
+        model: { type: 'string', description: 'Model: veo-3.1-fast (default), veo-3.1 (best quality), veo-3.0, veo-3.0-fast, veo-2.0', default: DEFAULT_VIDEO_MODEL },
+        aspect_ratio: { type: 'string', description: '16:9 or 9:16 (Veo does not support square video)', default: '9:16' },
+        duration: { type: 'number', description: 'Duration in seconds: 4, 6, or 8', default: 8 },
         style: { type: 'string', description: 'Style: Cinematic, UGC, App Promo, AI Social Platform Ad, School Viral Reel, Product Demo, Character Story', default: 'Cinematic' },
         camera_motion: { type: 'string', description: 'Camera: Static, Zoom in, Dolly in, Handheld, Orbit, Pan', default: 'Static' },
         reference_image_url: { type: 'string', description: 'Reference image URL for image-to-video' },
@@ -108,9 +101,9 @@ const TOOLS = [
       properties: {
         prompt: { type: 'string', description: 'Video description' },
         camera_motion: { type: 'string', description: 'Camera: Static, Zoom in, Dolly in, Handheld, Orbit, Pan' },
-        model: { type: 'string', default: 'seedance-2' },
+        model: { type: 'string', default: DEFAULT_VIDEO_MODEL },
         aspect_ratio: { type: 'string', default: '16:9' },
-        duration: { type: 'number', default: 5 },
+        duration: { type: 'number', default: 8 },
         reference_image_url: { type: 'string' },
       },
       required: ['prompt', 'camera_motion'],
@@ -123,8 +116,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         prompt: { type: 'string' },
-        target_aspect_ratio: { type: 'string', description: '16:9, 9:16, 1:1' },
-        model: { type: 'string', default: 'wavespeed-wan' },
+        target_aspect_ratio: { type: 'string', description: '16:9 or 9:16' },
+        model: { type: 'string', default: DEFAULT_VIDEO_MODEL },
         style: { type: 'string', default: 'Cinematic' },
       },
       required: ['prompt', 'target_aspect_ratio'],
@@ -132,15 +125,27 @@ const TOOLS = [
   },
   {
     name: 'generate_image',
-    description: 'Generate an image from a text prompt using FLUX AI.',
+    description: 'Generate an image from a text prompt using Google Imagen.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Description of the image' },
-        aspect_ratio: { type: 'string', description: '1:1, 16:9, 9:16, 4:3', default: '1:1' },
-        quality: { type: 'string', description: 'fast (FLUX Schnell, 2 credits) or high (FLUX Dev, 5 credits)', default: 'fast' },
+        aspect_ratio: { type: 'string', description: '1:1, 16:9, 9:16, 4:3, 3:4', default: '1:1' },
+        model: { type: 'string', description: 'imagen-4 (default), imagen-4-fast, imagen-4-ultra, imagen-3', default: DEFAULT_IMAGE_MODEL },
       },
       required: ['prompt'],
+    },
+  },
+  {
+    name: 'edit_image',
+    description: 'Edit an existing image with a natural-language instruction using Google Gemini Image — swap backgrounds, remove or add objects, restyle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        image_url: { type: 'string', description: 'URL of the image to edit' },
+        prompt: { type: 'string', description: 'What to change, e.g. "remove the person in the background"' },
+      },
+      required: ['image_url', 'prompt'],
     },
   },
   {
@@ -178,7 +183,7 @@ const TOOLS = [
   },
   {
     name: 'remove_background',
-    description: 'Remove background from an image using AI.',
+    description: 'Remove the background from an image using Google Gemini Image.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -189,7 +194,7 @@ const TOOLS = [
   },
   {
     name: 'outpaint_image',
-    description: 'Extend image beyond its borders using AI (outpainting).',
+    description: 'Extend an image beyond its borders using Google Gemini Image (outpainting).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -224,26 +229,8 @@ const TOOLS = [
     },
   },
   {
-    name: 'balance',
-    description: 'Check current credit balance.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'show_plans_and_credits',
-    description: 'Show available plans, credit costs per operation, and current balance.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'transactions',
-    description: 'Show recent credit transactions.',
-    inputSchema: {
-      type: 'object',
-      properties: { limit: { type: 'number', default: 10 } },
-    },
-  },
-  {
     name: 'models_explore',
-    description: 'Explore all available AI models with capabilities and credit costs.',
+    description: 'Explore all available Google AI models and their capabilities.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -303,31 +290,24 @@ const TOOLS = [
     },
   },
   {
-    name: 'recharge_credits',
-    description: 'Add credits to your own account (owner-only, protected by MCP token). Use this when your balance is low.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        amount: { type: 'integer', description: 'Credits to add (1–10000)', default: 1000 },
-      },
-    },
-  },
-  {
     name: 'generate_video_with_references',
-    description: 'Generate a PingTop-style video by first creating 3 reference images via Flux Schnell (hand holding phone, location, app UI), then sending them to Seedance 2.0 for consistent realistic video. Credits: 31 total (6 images + 25 video).',
+    description: 'Generate a PingTop-style video by first creating a reference image with Google Imagen (hand holding phone in a location, app UI on screen), then animating it with Google Veo.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Main video description (what happens in the video)' },
-        location_description: { type: 'string', description: 'Location/background for Image2 — e.g. "busy café interior, warm light, people in background". Defaults to urban street.' },
-        duration: { type: 'integer', description: 'Video duration in seconds (1-15)', default: 5 },
+        location_description: { type: 'string', description: 'Location/background — e.g. "busy café interior, warm light, people in background". Defaults to urban street.' },
+        duration: { type: 'integer', description: 'Video duration in seconds (4, 6 or 8)', default: 8 },
+        model: { type: 'string', description: 'Veo model to animate with', default: DEFAULT_VIDEO_MODEL },
       },
       required: ['prompt'],
     },
   },
 ];
 
-// ─── Replicate helpers ────────────────────────────────────────────────────────
+// ─── Replicate upscaling helpers ──────────────────────────────────────────────
+// Upscaling is post-processing, not generation — Google has no equivalent API here,
+// so Replicate is kept for this single purpose.
 
 async function replicateCreate(token: string, model: string, input: Record<string, unknown>): Promise<string> {
   const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
@@ -355,9 +335,9 @@ async function replicatePoll(token: string, predId: string, maxAttempts = 60): P
   return { status: 'timeout', output: null, error: 'Timed out after 3 minutes' };
 }
 
-async function runImageJob(
-  db: Firestore, env: Env, jobId: string, userId: string,
-  model: string, input: Record<string, unknown>, creditType: string,
+async function runUpscaleJob(
+  db: Firestore, env: Env, jobId: string,
+  model: string, input: Record<string, unknown>,
 ): Promise<void> {
   const token = env.REPLICATE_API_TOKEN || '';
   try {
@@ -370,50 +350,35 @@ async function runImageJob(
     await db.upsertWithTransforms('image_jobs', jobId, {
       status: result.status, resultUrl: outputUrl || null, errorMessage: result.error || null,
     }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-    if (result.status === 'completed') {
-      const cost = IMAGE_CREDITS[creditType] || 2;
-      await db.runTransaction(async (tx) => {
-        const snap = await tx.get('users', userId);
-        const balanceBefore = Number(snap?.credits || 0);
-        const balanceAfter = Math.max(0, balanceBefore - cost);
-        tx.setWithTransforms('users', userId, { credits: balanceAfter }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-        tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-          userId, type: 'deduction', amount: -cost, description: `Image job: ${creditType}`,
-          balanceBefore, balanceAfter,
-        }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-      });
-    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db.upsertWithTransforms('image_jobs', jobId, { status: 'failed', errorMessage: msg }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
   }
 }
 
-// ─── Video generation helper ──────────────────────────────────────────────────
+// ─── Google image job helper ──────────────────────────────────────────────────
 
-async function runVideoJob(
-  db: Firestore, env: Env,
-  generationId: string, userId: string,
-  req: {
-    generationId: string; prompt: string; enrichedPrompt?: string;
-    modelId: string; mode: string; aspectRatio: string; duration: number;
-    stylePreset?: string; cameraMotion?: string; referenceImageUrl?: string;
-  },
+/** Runs a Google image job — Imagen generation or Gemini editing. */
+async function runImageJob(
+  db: Firestore, env: Env, jobId: string, userId: string,
+  req: { prompt: string; model?: string; aspectRatio?: string; sourceImageUrl?: string },
 ): Promise<void> {
-  const fakeCtx = { auth: { uid: userId }, db, env, ctx: null as unknown as ExecutionContext };
   try {
-    const result = await generateVideo(env, req);
-    await db.upsertWithTransforms('video_generations', generationId, {
-      status: 'completed', resultVideoUrl: result.resultVideoUrl,
-      provider: MODEL_TO_PROVIDER[req.modelId] || 'unknown',
+    const result = await generateGoogleImage(env, {
+      prompt: req.prompt,
+      model: req.model,
+      aspectRatio: req.aspectRatio,
+      sourceImageUrl: req.sourceImageUrl,
+      userId,
+      jobId,
+    });
+
+    await db.upsertWithTransforms('image_jobs', jobId, {
+      status: 'completed', resultUrl: result.imageUrl, model: result.model, errorMessage: null,
     }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-    await deductCredits(fakeCtx, userId, req.modelId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await db.upsertWithTransforms('video_generations', generationId, {
-      status: 'failed', errorMessage: msg,
-    }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
+    await db.upsertWithTransforms('image_jobs', jobId, { status: 'failed', errorMessage: msg }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
   }
 }
 
@@ -470,18 +435,6 @@ async function runVideoAnalysisBasic(
     };
 
     await db.upsertWithTransforms('videoAnalysis', analysisId, { status: 'completed', result }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-    const cost = IMAGE_CREDITS['video_analysis'] || 5;
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get('users', userId);
-      const balanceBefore = Number(snap?.credits || 0);
-      const balanceAfter = Math.max(0, balanceBefore - cost);
-      tx.setWithTransforms('users', userId, { credits: balanceAfter }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-      tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-        userId, type: 'deduction', amount: -cost, description: 'Video analysis (basic)',
-        balanceBefore, balanceAfter,
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db.upsertWithTransforms('videoAnalysis', analysisId, { status: 'failed', errorMessage: msg }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
@@ -513,18 +466,6 @@ async function runVideoAnalysis(
     const result = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
     await db.upsertWithTransforms('videoAnalysis', analysisId, { status: 'completed', result }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-    const cost = IMAGE_CREDITS['video_analysis'] || 5;
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get('users', userId);
-      const balanceBefore = Number(snap?.credits || 0);
-      const balanceAfter = Math.max(0, balanceBefore - cost);
-      tx.setWithTransforms('users', userId, { credits: balanceAfter }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-      tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-        userId, type: 'deduction', amount: -cost, description: 'Video analysis',
-        balanceBefore, balanceAfter,
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db.upsertWithTransforms('videoAnalysis', analysisId, { status: 'failed', errorMessage: msg }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
@@ -556,20 +497,23 @@ async function handleToolCall(
     const prompt = String(args.prompt || '').trim();
     if (!prompt) return { error: 'prompt is required' };
 
-    const model = String(args.model || (toolName === 'motion_control' ? 'seedance-2' : 'seedance-2'));
-    const aspectRatio = String(args.aspect_ratio || args.target_aspect_ratio || '9:16');
-    const duration = Number(args.duration || 5);
-    const style = String(args.style || 'Cinematic');
-    const cameraMotion = String(args.camera_motion || 'Static');
-    const referenceImageUrl = args.reference_image_url ? String(args.reference_image_url) : undefined;
-
-    let credits: { ok: boolean; remaining: number; cost: number; reason?: string };
-    try {
-      credits = await ensureUserCredits(fakeCtx, userId, model);
-    } catch (e) {
-      return { error: `credits_check_failed: ${e instanceof Error ? e.message : String(e)}` };
+    const model = String(args.model || DEFAULT_VIDEO_MODEL);
+    if (!VEO_MODEL_IDS.includes(model)) {
+      return { error: `Unknown model "${model}". Available: ${VEO_MODEL_IDS.join(', ')}.` };
     }
-    if (!credits.ok) return { error: credits.reason };
+    const aspectRatio = String(args.aspect_ratio || args.target_aspect_ratio || '9:16');
+    const duration = Number(args.duration || 8);
+    const style = String(args.style || 'Cinematic');
+
+    // Unvalidated values reach the prompt verbatim, so a typo would silently
+    // become a nonsense camera instruction rather than an error.
+    const cameraMotion = String(args.camera_motion || 'Static');
+    const allowedMotions = CAMERA_MOTIONS.map((m) => m.id);
+    if (!allowedMotions.includes(cameraMotion)) {
+      return { error: `Unknown camera_motion "${cameraMotion}". Available: ${allowedMotions.join(', ')}.` };
+    }
+
+    const referenceImageUrl = args.reference_image_url ? String(args.reference_image_url) : undefined;
 
     try {
       await checkRateLimit(fakeCtx, userId);
@@ -580,51 +524,35 @@ async function handleToolCall(
 
     const generationId = crypto.randomUUID().replace(/-/g, '');
     const req = {
-      generationId, prompt, modelId: model,
+      generationId, userId, prompt, modelId: model,
       mode: referenceImageUrl ? 'image_to_video' : 'text_to_video',
       aspectRatio, duration, stylePreset: style, cameraMotion, referenceImageUrl,
     };
-    const provider = MODEL_TO_PROVIDER[model] || 'unknown';
 
-    // For Replicate models: create prediction immediately and store predictionId.
-    // Status is checked on-demand via get_video_status — no long-running background Worker needed.
-    if (provider === 'replicate' && env.REPLICATE_API_TOKEN) {
-      let predictionId: string;
-      try {
-        predictionId = await createReplicatePrediction(String(env.REPLICATE_API_TOKEN), model, req);
-      } catch (e) {
-        return { error: `replicate_create_failed: ${e instanceof Error ? e.message : String(e)}` };
-      }
-
-      try {
-        await db.upsertWithTransforms('video_generations', generationId, {
-          ...req, userId, status: 'processing', source: 'mcp',
-          provider, predictionId,
-        }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
-      } catch (e) {
-        return { error: `firestore_write_failed: ${e instanceof Error ? e.message : String(e)}` };
-      }
-
-      return {
-        generation_id: generationId, status: 'processing', model, cost_credits: credits.cost,
-        message: `Video generation started! Use get_video_status("${generationId}") to check progress. Usually 1-3 minutes.`,
-      };
+    // Veo is long-running: start the operation now, poll it from get_video_status.
+    let operationName: string;
+    let vertexModel: string;
+    try {
+      const started = await startVeoOperation(env, req);
+      operationName = started.operationName;
+      vertexModel = started.vertexModel;
+    } catch (e) {
+      return { error: `veo_create_failed: ${e instanceof Error ? e.message : String(e)}` };
     }
 
-    // For other providers: use background worker
     try {
       await db.upsertWithTransforms('video_generations', generationId, {
-        ...req, userId, status: 'processing', source: 'mcp', provider,
+        ...req, status: 'processing', source: 'mcp',
+        provider: MODEL_TO_PROVIDER[model] || 'veo',
+        veoOperationName: operationName, veoVertexModel: vertexModel,
       }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
     } catch (e) {
       return { error: `firestore_write_failed: ${e instanceof Error ? e.message : String(e)}` };
     }
 
-    executionCtx.waitUntil(runVideoJob(db, env, generationId, userId, req));
-
     return {
-      generation_id: generationId, status: 'processing', model, cost_credits: credits.cost,
-      message: `Video generation started! Use get_video_status("${generationId}") to check. Usually 30-120 seconds.`,
+      generation_id: generationId, status: 'processing', model,
+      message: `Video generation started! Use get_video_status("${generationId}") to check progress. Usually 1-3 minutes.`,
     };
   }
 
@@ -635,22 +563,23 @@ async function handleToolCall(
     const doc = await db.get('video_generations', gid);
     if (!doc || doc.userId !== userId) return { error: 'Generation not found' };
 
-    // If still processing and has Replicate predictionId, check Replicate right now
-    if (doc.status === 'processing' && doc.predictionId && env.REPLICATE_API_TOKEN) {
+    // If still processing, poll the Veo operation right now
+    if (doc.status === 'processing' && doc.veoOperationName && doc.veoVertexModel) {
       try {
-        const result = await checkReplicatePrediction(String(env.REPLICATE_API_TOKEN), String(doc.predictionId));
+        const result = await checkVeoOperation(
+          env,
+          String(doc.veoVertexModel),
+          String(doc.veoOperationName),
+          { userId, generationId: gid },
+        );
+
         if (result.status !== 'processing') {
-          // Update Firestore with the result
           await db.upsertWithTransforms('video_generations', gid, {
             status: result.status,
             resultVideoUrl: result.videoUrl || null,
+            resultStoragePath: result.storagePath || null,
             errorMessage: result.error || null,
           }, [{ field: 'updatedAt', type: 'serverTimestamp' }]);
-
-          if (result.status === 'completed') {
-            const fakeCtx2 = { auth: { uid: userId }, db, env, ctx: executionCtx };
-            await deductCredits(fakeCtx2, userId, String(doc.modelId || 'replicate-wan-t2v'));
-          }
 
           return {
             generation_id: gid, status: result.status, model: doc.modelId,
@@ -690,52 +619,46 @@ async function handleToolCall(
     const prompt = String(args.prompt || '').trim();
     if (!prompt) return { error: 'prompt is required' };
 
-    const cost = args.quality === 'high' ? 5 : 2;
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
-
-    const aspectRatio = String(args.aspect_ratio || '1:1');
-    const dims: Record<string, [number, number]> = { '1:1': [1024, 1024], '16:9': [1280, 720], '9:16': [720, 1280], '4:3': [1024, 768] };
-    const [width, height] = dims[aspectRatio] || [1024, 1024];
-    const model = args.quality === 'high' ? 'flux' : 'flux';
-
-    if (env.REPLICATE_API_TOKEN) {
-      // Use Replicate for both fast (Flux Schnell) and high (Flux Dev) — avoids Pollinations IP rate limits
-      const jobId = crypto.randomUUID().replace(/-/g, '');
-      const replicateModel = args.quality === 'high' ? 'black-forest-labs/flux-dev' : 'black-forest-labs/flux-schnell';
-      await db.upsertWithTransforms('image_jobs', jobId, {
-        userId, type: 'generate_image', prompt, model: replicateModel, aspectRatio, status: 'processing',
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
-      executionCtx.waitUntil(
-        runImageJob(db, env, jobId, userId, replicateModel, { prompt, num_outputs: 1, aspect_ratio: aspectRatio }, 'generate_image'),
-      );
-      return { job_id: jobId, status: 'processing', model: replicateModel, cost_credits: cost, message: `Image generation started! Use get_image_status("${jobId}") to check. Usually 10-30 seconds.` };
+    const model = String(args.model || DEFAULT_IMAGE_MODEL);
+    if (!IMAGE_MODEL_IDS.includes(model)) {
+      return { error: `Unknown image model "${model}". Available: ${IMAGE_MODEL_IDS.join(', ')}.` };
     }
 
-    // Fallback: Pollinations.ai (no API key) — may hit rate limits on shared IPs
-    const encodedPrompt = encodeURIComponent(prompt);
-    const seed = Math.floor(Math.random() * 1000000);
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&model=${model}&seed=${seed}&nologo=true&enhance=true`;
+    const aspectRatio = String(args.aspect_ratio || '1:1');
+    const jobId = crypto.randomUUID().replace(/-/g, '');
 
-    // Deduct credits
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get('users', userId);
-      const balanceBefore = Number(snap?.credits || 0);
-      const balanceAfter = Math.max(0, balanceBefore - cost);
-      tx.setWithTransforms('users', userId, { credits: balanceAfter }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-      tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-        userId, type: 'deduction', amount: -cost, description: 'Image generation (Pollinations)',
-        balanceBefore, balanceAfter,
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-    });
+    await db.upsertWithTransforms('image_jobs', jobId, {
+      userId, type: 'generate_image', prompt, model, aspectRatio, status: 'processing',
+    }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
+
+    executionCtx.waitUntil(
+      runImageJob(db, env, jobId, userId, { prompt, model, aspectRatio }),
+    );
 
     return {
-      status: 'completed',
-      image_url: imageUrl,
-      provider: 'pollinations.ai',
-      cost_credits: cost,
-      width, height,
-      note: 'Image URL is ready — open it in a browser or use it as reference_image_url in generate_video. First load may take a few seconds.',
+      job_id: jobId, status: 'processing', model,
+      message: `Image generation started! Use get_image_status("${jobId}") to check. Usually 10-30 seconds.`,
+    };
+  }
+
+  // ── edit_image ────────────────────────────────────────────────────────────
+  if (toolName === 'edit_image') {
+    const imageUrl = String(args.image_url || '');
+    const prompt = String(args.prompt || '').trim();
+    if (!imageUrl || !prompt) return { error: 'image_url and prompt are required' };
+
+    const jobId = crypto.randomUUID().replace(/-/g, '');
+    await db.upsertWithTransforms('image_jobs', jobId, {
+      userId, type: 'edit_image', sourceUrl: imageUrl, prompt, model: 'gemini-image', status: 'processing',
+    }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
+
+    executionCtx.waitUntil(
+      runImageJob(db, env, jobId, userId, { prompt, sourceImageUrl: imageUrl }),
+    );
+
+    return {
+      job_id: jobId, status: 'processing', model: 'gemini-image',
+      message: `Image editing started! Use get_image_status("${jobId}") to check.`,
     };
   }
 
@@ -757,21 +680,17 @@ async function handleToolCall(
     if (!imageUrl) return { error: 'image_url is required' };
     if (!env.REPLICATE_API_TOKEN) return { error: 'Upscale requires REPLICATE_API_TOKEN.' };
 
-    const cost = IMAGE_CREDITS['upscale_image'];
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
-
     const jobId = crypto.randomUUID().replace(/-/g, '');
     await db.upsertWithTransforms('image_jobs', jobId, {
       userId, type: 'upscale_image', sourceUrl: imageUrl, status: 'processing',
     }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
 
     executionCtx.waitUntil(
-      runImageJob(db, env, jobId, userId, 'nightmareai/real-esrgan', { image: imageUrl, scale: 4, face_enhance: false }, 'upscale_image'),
+      runUpscaleJob(db, env, jobId, 'nightmareai/real-esrgan', { image: imageUrl, scale: 4, face_enhance: false }),
     );
 
     return {
-      job_id: jobId, status: 'processing', cost_credits: cost,
+      job_id: jobId, status: 'processing',
       message: `Upscaling started! Use get_image_status("${jobId}") to check. Usually 30-60 seconds.`,
     };
   }
@@ -782,21 +701,17 @@ async function handleToolCall(
     if (!videoUrl) return { error: 'video_url is required' };
     if (!env.REPLICATE_API_TOKEN) return { error: 'Upscale video requires REPLICATE_API_TOKEN.' };
 
-    const cost = IMAGE_CREDITS['upscale_video'];
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
-
     const jobId = crypto.randomUUID().replace(/-/g, '');
     await db.upsertWithTransforms('image_jobs', jobId, {
       userId, type: 'upscale_video', sourceUrl: videoUrl, status: 'processing',
     }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
 
     executionCtx.waitUntil(
-      runImageJob(db, env, jobId, userId, 'lucataco/real-esrgan-video', { video_path: videoUrl, scale: 2 }, 'upscale_video'),
+      runUpscaleJob(db, env, jobId, 'lucataco/real-esrgan-video', { video_path: videoUrl, scale: 2 }),
     );
 
     return {
-      job_id: jobId, status: 'processing', cost_credits: cost,
+      job_id: jobId, status: 'processing',
       message: `Video upscaling started! Use get_image_status("${jobId}") to check. Usually 2-5 minutes.`,
     };
   }
@@ -805,23 +720,21 @@ async function handleToolCall(
   if (toolName === 'remove_background') {
     const imageUrl = String(args.image_url || '');
     if (!imageUrl) return { error: 'image_url is required' };
-    if (!env.REPLICATE_API_TOKEN) return { error: 'Remove background requires REPLICATE_API_TOKEN.' };
-
-    const cost = IMAGE_CREDITS['remove_background'];
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
 
     const jobId = crypto.randomUUID().replace(/-/g, '');
     await db.upsertWithTransforms('image_jobs', jobId, {
-      userId, type: 'remove_background', sourceUrl: imageUrl, status: 'processing',
+      userId, type: 'remove_background', sourceUrl: imageUrl, model: 'gemini-image', status: 'processing',
     }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
 
     executionCtx.waitUntil(
-      runImageJob(db, env, jobId, userId, 'lucataco/remove-bg', { image_url: imageUrl }, 'remove_background'),
+      runImageJob(db, env, jobId, userId, {
+        prompt: 'Remove the background completely, keeping only the main subject with clean edges on a transparent background. Do not alter the subject itself.',
+        sourceImageUrl: imageUrl,
+      }),
     );
 
     return {
-      job_id: jobId, status: 'processing', cost_credits: cost,
+      job_id: jobId, status: 'processing',
       message: `Background removal started! Use get_image_status("${jobId}") to check. Usually 10-20 seconds.`,
     };
   }
@@ -831,24 +744,22 @@ async function handleToolCall(
     const imageUrl = String(args.image_url || '');
     const prompt = String(args.prompt || '').trim();
     if (!imageUrl || !prompt) return { error: 'image_url and prompt are required' };
-    if (!env.REPLICATE_API_TOKEN) return { error: 'Outpaint requires REPLICATE_API_TOKEN.' };
 
-    const cost = IMAGE_CREDITS['outpaint_image'];
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
-
+    const direction = String(args.direction || 'all');
     const jobId = crypto.randomUUID().replace(/-/g, '');
     await db.upsertWithTransforms('image_jobs', jobId, {
-      userId, type: 'outpaint_image', sourceUrl: imageUrl, prompt, status: 'processing',
+      userId, type: 'outpaint_image', sourceUrl: imageUrl, prompt, direction, model: 'gemini-image', status: 'processing',
     }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
 
     executionCtx.waitUntil(
-      runImageJob(db, env, jobId, userId, 'stability-ai/stable-diffusion-inpainting',
-        { image: imageUrl, prompt, negative_prompt: 'blurry, low quality', num_outputs: 1 }, 'outpaint_image'),
+      runImageJob(db, env, jobId, userId, {
+        prompt: `Extend this image outward${direction === 'all' ? ' on all sides' : ` towards the ${direction}`}, seamlessly continuing the existing scene. In the newly generated area: ${prompt}. Keep the original content unchanged and match lighting, perspective and style.`,
+        sourceImageUrl: imageUrl,
+      }),
     );
 
     return {
-      job_id: jobId, status: 'processing', cost_credits: cost,
+      job_id: jobId, status: 'processing',
       message: `Outpainting started! Use get_image_status("${jobId}") to check.`,
     };
   }
@@ -886,50 +797,6 @@ async function handleToolCall(
     };
   }
 
-  // ── balance ───────────────────────────────────────────────────────────────
-  if (toolName === 'balance') {
-    const snap = await db.get('users', userId);
-    const credits = Number(snap?.credits ?? 0);
-    return { credits, message: `You have ${credits} credits.` };
-  }
-
-  // ── show_plans_and_credits ────────────────────────────────────────────────
-  if (toolName === 'show_plans_and_credits') {
-    const snap = await db.get('users', userId);
-    return {
-      current_balance: Number(snap?.credits ?? 0),
-      credit_costs: {
-        'generate_video (ltx-fast, svd)': 5,
-        'generate_video (wavespeed-wan, replicate-wan)': 10,
-        'generate_video (seedance-2-fast, replicate-luma)': 15,
-        'generate_video (replicate-kling)': 20,
-        'generate_video (seedance-2 best quality)': 25,
-        'generate_image (FLUX Schnell fast)': 2,
-        'generate_image (FLUX Dev high quality)': 5,
-        'remove_background': 3,
-        'upscale_image (4x Real-ESRGAN)': 5,
-        'outpaint_image': 5,
-        'video_analysis': 5,
-        'upscale_video': 15,
-      },
-      top_up_url: 'https://gp-video-studio.web.app',
-      new_users: '100 free credits on signup',
-    };
-  }
-
-  // ── transactions ──────────────────────────────────────────────────────────
-  if (toolName === 'transactions') {
-    const limit = Math.min(Number(args.limit || 10), 20);
-    const docs = await db.query('creditLogs', [{ field: 'userId', op: 'EQUAL', value: userId }]);
-    return {
-      transactions: docs.slice(0, limit).map((d) => ({
-        type: d.data.type, amount: d.data.amount,
-        description: d.data.description, balance_after: d.data.balanceAfter,
-      })),
-      total: docs.length,
-    };
-  }
-
   // ── models_explore ────────────────────────────────────────────────────────
   if (toolName === 'models_explore') {
     const typeFilter = args.type ? String(args.type) : null;
@@ -946,8 +813,8 @@ async function handleToolCall(
   if (toolName === 'show_reference_elements') {
     return {
       style_presets: STYLE_PRESETS, camera_motions: CAMERA_MOTIONS,
-      aspect_ratios: ['16:9', '9:16', '1:1'],
-      durations_seconds: [5, 10, 15],
+      aspect_ratios: ['16:9', '9:16'],
+      durations_seconds: [4, 6, 8],
       modes: ['text_to_video', 'image_to_video'],
       video_models: MODEL_CATALOG.filter((m) => m.type === 'video'),
       image_models: MODEL_CATALOG.filter((m) => m.type === 'image'),
@@ -959,15 +826,15 @@ async function handleToolCall(
     return {
       tip: 'Use a consistent reference image to maintain character identity across videos.',
       how_to_use: [
-        '1. Generate or find a character portrait image',
-        '2. Host it publicly (Imgur, Cloudinary, etc.)',
-        '3. Pass the URL as reference_image_url in generate_video',
+        '1. Generate a character portrait with generate_image (Google Imagen)',
+        '2. Reuse the returned URL as reference_image_url in generate_video',
+        '3. Use edit_image (Gemini Image) to restyle the same character without losing identity',
         '4. Use similar prompts each time for consistency',
       ],
       example: {
         prompt: 'A young woman with red hair walking through a forest',
         reference_image_url: 'https://your-character-portrait.jpg',
-        model: 'seedance-2',
+        model: DEFAULT_VIDEO_MODEL,
         camera_motion: 'Dolly in',
       },
     };
@@ -1012,10 +879,6 @@ async function handleToolCall(
     const videoUrl = String(args.video_url || '');
     if (!videoUrl) return { error: 'video_url is required' };
 
-    const cost = IMAGE_CREDITS['video_analysis'];
-    const userSnap = await db.get('users', userId);
-    if (Number(userSnap?.credits ?? 0) < cost) return { error: `Insufficient credits. Need ${cost}.` };
-
     const analysisId = crypto.randomUUID().replace(/-/g, '');
     const analysisType = String(args.analysis_type || 'all');
 
@@ -1031,7 +894,7 @@ async function handleToolCall(
     executionCtx.waitUntil(analysisFn);
 
     return {
-      analysis_id: analysisId, status: 'processing', cost_credits: cost,
+      analysis_id: analysisId, status: 'processing',
       message: `Analysis started! Use video_analysis_status("${analysisId}") to check. Usually 10-20 seconds.`,
     };
   }
@@ -1045,44 +908,18 @@ async function handleToolCall(
     return { analysis_id: analysisId, status: doc.status, video_url: doc.videoUrl, result: doc.result || null };
   }
 
-  // ── recharge_credits ─────────────────────────────────────────────────────
-  if (toolName === 'recharge_credits') {
-    const amount = Math.min(Math.max(Number(args.amount || 1000), 1), 10000);
-    let newBalance = 0;
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get('users', userId);
-      const balanceBefore = Number(snap?.credits || 0);
-      newBalance = balanceBefore + amount;
-      tx.setWithTransforms('users', userId, { credits: newBalance }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-      tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-        userId, type: 'recharge', amount, balanceBefore, balanceAfter: newBalance,
-        description: 'Self-recharge via MCP token',
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-    });
-    return { credits: newBalance, added: amount, message: `Added ${amount} credits. New balance: ${newBalance}.` };
-  }
-
   // ── generate_video_with_references ───────────────────────────────────────
   if (toolName === 'generate_video_with_references') {
     const prompt = String(args.prompt || '').trim();
     if (!prompt) return { error: 'prompt is required' };
-    if (!env.REPLICATE_API_TOKEN) return { error: 'REPLICATE_API_TOKEN not configured' };
+
+    const videoModel = String(args.model || DEFAULT_VIDEO_MODEL);
+    if (!VEO_MODEL_IDS.includes(videoModel)) {
+      return { error: `Unknown model "${videoModel}". Available: ${VEO_MODEL_IDS.join(', ')}.` };
+    }
 
     const locationDescription = String(args.location_description || 'busy urban street, warm sunlight, people walking in background, modern city');
-    const duration = Math.min(Math.max(Number(args.duration || 5), 1), 15);
-    const apiToken = String(env.REPLICATE_API_TOKEN);
-
-    // Check credits: 6 (3x Flux images) + 25 (Seedance video) = 31
-    const totalCost = 31;
-    const userSnap = await db.get('users', userId);
-    if (!userSnap) {
-      // Auto-provision new user with 100 free credits
-      await db.upsertWithTransforms('users', userId, { credits: 100 }, [{ field: 'creditsGrantedAt', type: 'serverTimestamp' }]);
-    }
-    const currentCredits = Number(userSnap?.credits ?? 100);
-    if (currentCredits < totalCost) {
-      return { error: `Insufficient credits. Need ${totalCost} (25 video + 6 reference images), you have ${currentCredits}.` };
-    }
+    const duration = Number(args.duration || 8);
 
     try {
       await checkRateLimit(fakeCtx, userId);
@@ -1091,85 +928,60 @@ async function handleToolCall(
       return { error: `rate_limit_failed: ${e instanceof Error ? e.message : String(e)}` };
     }
 
-    // STEP 1 — Generate 3 reference images via Flux Schnell in parallel
-    const fluxModel = 'black-forest-labs/flux-schnell';
-    const imagePrompts = [
-      'Close-up of a human hand holding a modern smartphone, relaxed natural grip, warm soft lighting, photorealistic, clean neutral background, no text',
-      locationDescription,
-      'Mobile app social feed UI screenshot, white background, short video thumbnails grid, profile picture circles, live streaming badge, amber and white color scheme, clean modern design, PingTop social video platform interface',
-    ];
+    // STEP 1 — Build one composed reference frame with Google Imagen.
+    // Veo takes a single starting image, so the hand, location and app UI are
+    // described together in one Imagen prompt instead of three separate images.
+    const referenceJobId = crypto.randomUUID().replace(/-/g, '');
+    const referencePrompt = [
+      'Photorealistic vertical shot: a close-up of a human hand holding a modern smartphone with a relaxed natural grip.',
+      `Background: ${locationDescription}.`,
+      'On the phone screen: a mobile social video feed UI — grid of short video thumbnails, circular profile pictures, a live streaming badge, amber and white colour scheme, clean modern design (PingTop social video platform).',
+      'Warm soft lighting, shallow depth of field, no text overlays.',
+    ].join(' ');
 
-    // Create sequentially — Replicate burst limit is 1 request on low-credit accounts
-    let predIds: string[];
+    let referenceImageUrl: string;
     try {
-      const ids: string[] = [];
-      for (const p of imagePrompts) {
-        if (ids.length > 0) await new Promise((r) => setTimeout(r, 11000));
-        ids.push(await replicateCreate(apiToken, fluxModel, { prompt: p, num_outputs: 1, aspect_ratio: '1:1' }));
-      }
-      predIds = ids;
-    } catch (e) {
-      return { error: `flux_create_failed: ${e instanceof Error ? e.message : String(e)}` };
-    }
-
-    // STEP 2 — Poll all 3 until complete (Flux Schnell finishes in ~5-15 seconds)
-    let pollResults: Array<{ status: string; output: unknown; error: string | null }>;
-    try {
-      pollResults = await Promise.all(predIds.map((id) => replicatePoll(apiToken, id, 15)));
-    } catch (e) {
-      return { error: `flux_poll_failed: ${e instanceof Error ? e.message : String(e)}` };
-    }
-
-    const imageUrls: string[] = [];
-    for (let i = 0; i < pollResults.length; i++) {
-      const r = pollResults[i];
-      if (r.status !== 'completed') return { error: `flux_image_${i + 1}_failed: ${r.error || r.status}` };
-      const imgUrl = Array.isArray(r.output) ? String(r.output[0] || '') : String(r.output || '');
-      if (!imgUrl) return { error: `flux_image_${i + 1}_empty_output` };
-      imageUrls.push(imgUrl);
-    }
-
-    // Deduct 6 credits for the 3 Flux images (2 credits each) — video credits charged on completion via get_video_status
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get('users', userId);
-      const balanceBefore = Number(snap?.credits || 0);
-      const balanceAfter = Math.max(0, balanceBefore - 6);
-      tx.setWithTransforms('users', userId, { credits: balanceAfter }, [{ field: 'creditsUpdatedAt', type: 'serverTimestamp' }]);
-      tx.setWithTransforms('creditLogs', crypto.randomUUID().replace(/-/g, ''), {
-        userId, type: 'deduction', amount: -6, description: '3x reference image generation (Flux Schnell)',
-        balanceBefore, balanceAfter,
-      }, [{ field: 'createdAt', type: 'serverTimestamp' }]);
-    });
-
-    // STEP 3 — Send to Seedance 2.0 with reference_images array
-    // Wait to ensure Replicate rate limit has reset (burst=1 at <$5 balance resets in ~10s)
-    await new Promise((r) => setTimeout(r, 12000));
-
-    const enrichedPrompt = `${prompt} [Image1] hand is holding the phone, [Image2] is the location background, [Image3] is the app interface visible on screen`;
-
-    let predictionId: string;
-    try {
-      predictionId = await replicateCreate(apiToken, 'bytedance/seedance-2.0', {
-        prompt: enrichedPrompt,
-        reference_images: imageUrls,
-        aspect_ratio: '9:16',
-        generate_audio: true,
-        duration,
-        resolution: '720p',
+      const image = await generateGoogleImage(env, {
+        prompt: referencePrompt,
+        model: DEFAULT_IMAGE_MODEL,
+        aspectRatio: '9:16',
+        userId,
+        jobId: referenceJobId,
       });
+      referenceImageUrl = image.imageUrl;
     } catch (e) {
-      return { error: `seedance_create_failed: ${e instanceof Error ? e.message : String(e)}` };
+      return { error: `imagen_reference_failed: ${e instanceof Error ? e.message : String(e)}` };
     }
 
-    // STEP 4 — Persist and return generation_id (status polled via get_video_status)
+    // STEP 2 — Animate the reference frame with Veo
     const generationId = crypto.randomUUID().replace(/-/g, '');
+    const enrichedPrompt = `${prompt}. The hand holds the phone steadily, the app interface stays visible on screen, the background stays consistent.`;
+
+    const veoReq = {
+      generationId, userId, prompt, enrichedPrompt,
+      modelId: videoModel, mode: 'image_to_video',
+      aspectRatio: '9:16', duration,
+      stylePreset: 'Cinematic', cameraMotion: 'Static',
+      referenceImageUrl,
+    };
+
+    let operationName: string;
+    let vertexModel: string;
+    try {
+      const started = await startVeoOperation(env, veoReq);
+      operationName = started.operationName;
+      vertexModel = started.vertexModel;
+    } catch (e) {
+      return { error: `veo_create_failed: ${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    // STEP 3 — Persist and return generation_id (status polled via get_video_status)
     try {
       await db.upsertWithTransforms('video_generations', generationId, {
-        userId, prompt, enrichedPrompt, modelId: 'seedance-2', aspectRatio: '9:16',
-        duration, status: 'processing', source: 'mcp',
-        provider: 'replicate', predictionId,
-        referenceImages: imageUrls,
-        mode: 'text_to_video',
+        ...veoReq, status: 'processing', source: 'mcp',
+        provider: 'veo',
+        veoOperationName: operationName, veoVertexModel: vertexModel,
+        referenceImages: [referenceImageUrl],
       }, [{ field: 'createdAt', type: 'serverTimestamp' }, { field: 'updatedAt', type: 'serverTimestamp' }]);
     } catch (e) {
       return { error: `firestore_write_failed: ${e instanceof Error ? e.message : String(e)}` };
@@ -1178,10 +990,9 @@ async function handleToolCall(
     return {
       generation_id: generationId,
       status: 'processing',
-      model: 'seedance-2',
-      reference_images: imageUrls,
-      cost_credits: totalCost,
-      message: `Video generation started with 3 reference images! Use get_video_status("${generationId}") to check progress. Usually 2-3 minutes.`,
+      model: videoModel,
+      reference_images: [referenceImageUrl],
+      message: `Video generation started from a Google Imagen reference frame! Use get_video_status("${generationId}") to check progress. Usually 1-3 minutes.`,
     };
   }
 

@@ -4,7 +4,8 @@ import type { VideoElement, VideoElementCategory } from './videoElement';
 export type VideoModelStatus = 'active' | 'coming_soon';
 export type VideoGenerationMode = 'text_to_video' | 'image_to_video' | 'reference_to_video';
 export type VideoAspectRatio = '9:16' | '16:9' | '1:1';
-export type VideoDuration = 5 | 10 | 15;
+/** Union across all models — each model exposes its own subset via `supportedDurations`. */
+export type VideoDuration = 4 | 5 | 6 | 7 | 8 | 10 | 15;
 export type VideoGenerationStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export type VideoStylePreset =
@@ -30,7 +31,7 @@ export type CameraMotion =
 export type ReferenceMode =
   | 'none'              // model takes no images
   | 'single_image'      // image_url: string
-  | 'image_urls'        // image_urls: string[]  (Seedance 2.0 multi)
+  | 'image_urls'        // image_urls: string[]  (multi-image reference)
   | 'reference_images'  // reference_images: string[]
   | 'content_array';    // content: [{type:"image_url", image_url:"..."}]
 
@@ -88,9 +89,10 @@ export interface VideoModel {
   supportsReferenceVideo: boolean;
   supportsAudio: boolean;
   maxDuration: VideoDuration;
+  /** Exact durations this model accepts — drives the duration picker */
+  supportedDurations: VideoDuration[];
   aspectRatios: VideoAspectRatio[];
   capabilities: ModelCapabilities;
-  estimatedCostLabel?: string;
   description?: string;
 }
 

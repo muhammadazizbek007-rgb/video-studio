@@ -4,7 +4,6 @@ import { onAuthStateChanged, signInAnonymously, type User } from 'firebase/auth'
 import { Timestamp, doc, collection } from 'firebase/firestore';
 import {
   ArrowLeft,
-  BookOpen,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -35,12 +34,18 @@ import GenerationStatus from '../components/video/GenerationStatus';
 import VideoResult from '../components/video/VideoResult';
 import PromptEditor from '../components/video/PromptEditor';
 import ReferenceSummary from '../components/video/ReferenceSummary';
-import { videoModels } from '../models/videoModels';
+import {
+  videoModels,
+  defaultVideoModelId,
+  getDurationsForModel,
+  getAspectRatiosForModel,
+  clampDurationToModel,
+  clampAspectRatioToModel,
+} from '../models/videoModels';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebase';
 import {
   getVideoGeneration,
-  subscribeToCredits,
   subscribeToUserVideoGenerations,
   toggleSavedVideoGeneration,
 } from '../services/firebaseVideoService';
@@ -67,19 +72,6 @@ import type {
   VideoGenerationRequest,
   VideoStylePreset,
 } from '../types/video';
-
-const MODEL_CREDIT_COST: Record<string, number> = {
-  'wavespeed-wan': 10, 'wavespeed-wan-i2v': 10,
-  'seedance-2': 25, 'seedance-2-fast': 15,
-  'replicate-wan-t2v': 10, 'replicate-wan-i2v': 10,
-  'replicate-kling': 20, 'replicate-luma': 15,
-  'huggingface-cogvideox': 10, 'huggingface-opensora': 10,
-  'cogvideox-free': 5, 'ltx-fast': 5, 'svd': 5,
-  'leonardo-motion': 15, 'json2video': 10,
-};
-
-const durationOptions: VideoDuration[] = [5, 10, 15];
-const aspectOptions: VideoAspectRatio[] = ['9:16', '16:9', '1:1'];
 
 const stylePresets: { value: VideoStylePreset; label: string; emoji: string }[] = [
   { value: 'Cinematic', label: 'Кино', emoji: '🎬' },
@@ -128,10 +120,10 @@ export default function VideoStudio() {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [authLoading, setAuthLoading] = useState(true);
   const [prompt, setPrompt] = useState('');
-  const [modelId, setModelId] = useState('seedance-2');
+  const [modelId, setModelId] = useState(defaultVideoModelId);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>('9:16');
-  const [duration, setDuration] = useState<VideoDuration>(10);
+  const [duration, setDuration] = useState<VideoDuration>(8);
   const [selectedStylePreset, setSelectedStylePreset] = useState<VideoStylePreset>('Cinematic');
   const [selectedCameraMotion, setSelectedCameraMotion] = useState<CameraMotion>('Dolly in');
   const [referenceImageFile, setReferenceImageFile] = useState<File | null>(null);
@@ -143,7 +135,7 @@ export default function VideoStudio() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [generations, setGenerations] = useState<VideoGenerationRequest[]>([]);
-  const [mainTab, setMainTab] = useState<'Создать видео' | 'История' | 'Как это работает' | 'Cinema Studio' | 'CapCut'>('Создать видео');
+  const [mainTab, setMainTab] = useState<'Создать видео' | 'История' | 'Cinema Studio' | 'CapCut'>('Создать видео');
   const [capCutPrompt, setCapCutPrompt] = useState('');
   const [capCutInputMode, setCapCutInputMode] = useState<'Image' | 'Video'>('Video');
   const [cinemaInputMode, setCinemaInputMode] = useState<'Image' | 'Video'>(
@@ -152,8 +144,8 @@ export default function VideoStudio() {
   const [cinemaPrompt, setCinemaPrompt] = useState('');
   const [cinemaAspect, setCinemaAspect] = useState('16:9');
   const [cinemaQuality, setCinemaQuality] = useState('2K');
-  const [cinemaDuration, setCinemaDuration] = useState<5 | 10 | 15>(5);
-  const [cinemaModelId, setCinemaModelId] = useState('seedance-2');
+  const [cinemaDuration, setCinemaDuration] = useState<VideoDuration>(8);
+  const [cinemaModelId, setCinemaModelId] = useState(defaultVideoModelId);
   const [cinemaModelPickerOpen, setCinemaModelPickerOpen] = useState(false);
   const [cinemaAspectPickerOpen, setCinemaAspectPickerOpen] = useState(false);
   const [cinemaQualityPickerOpen, setCinemaQualityPickerOpen] = useState(false);
@@ -195,7 +187,6 @@ export default function VideoStudio() {
   const [newElementImagePreview, setNewElementImagePreview] = useState('');
   const [newElementDescription, setNewElementDescription] = useState('');
   const [newElementSaving, setNewElementSaving] = useState(false);
-  const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
@@ -209,11 +200,6 @@ export default function VideoStudio() {
     return subscribeToUserVideoGenerations(user.uid, (items) => {
       setGenerations(items);
     }, () => {});
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return undefined;
-    return subscribeToCredits(user.uid, setCredits, () => {});
   }, [user]);
 
   useEffect(() => {
@@ -294,7 +280,7 @@ export default function VideoStudio() {
     }
   }
 
-  // Poll Replicate status via worker every 6s for active segments
+  // Poll the Veo operation via worker every 6s for active segments
   function startSegmentPolling(segNum: string, generationId: string) {
     if (pollIntervalsRef.current[segNum]) clearInterval(pollIntervalsRef.current[segNum]);
     pollIntervalsRef.current[segNum] = setInterval(() => {
@@ -303,6 +289,21 @@ export default function VideoStudio() {
   }
 
   const canGenerate = useMemo(() => Boolean(prompt.trim()) && Boolean(user), [prompt, user]);
+
+  // Each model accepts its own durations and aspect ratios (Veo: 4/6/8s, 16:9 or 9:16)
+  const durationOptions = useMemo(() => getDurationsForModel(modelId), [modelId]);
+  const aspectOptions = useMemo(() => getAspectRatiosForModel(modelId), [modelId]);
+  const cinemaDurationOptions = useMemo(() => getDurationsForModel(cinemaModelId), [cinemaModelId]);
+
+  // Keep the current selection valid when the model changes
+  useEffect(() => {
+    setDuration((prev) => clampDurationToModel(modelId, prev));
+    setAspectRatio((prev) => clampAspectRatioToModel(modelId, prev));
+  }, [modelId]);
+
+  useEffect(() => {
+    setCinemaDuration((prev) => clampDurationToModel(cinemaModelId, prev));
+  }, [cinemaModelId]);
 
   // Elements mentioned in prompt via @handle
   const mentionedElements = useMemo(() => {
@@ -457,9 +458,12 @@ export default function VideoStudio() {
   function enhancePrompt() {
     const basePrompt = prompt.trim();
     if (!basePrompt) return;
+    // Camera motion, style and duration are appended server-side from the
+    // pickers — repeating them here would send the model two instructions,
+    // and two conflicting ones if the user changes a picker afterwards.
     const motionHint = referenceImageFile
-      ? `Animate this photo: ${basePrompt}. Smooth natural motion, ${selectedCameraMotion} camera movement, ${selectedStylePreset} style, ${duration}s.`
-      : `${basePrompt}. ${selectedStylePreset} style, ${selectedCameraMotion} camera, ${aspectRatio} format, ${duration}s, cinematic quality.`;
+      ? `Animate this photo: ${basePrompt}. Smooth natural motion, consistent lighting, cinematic quality.`
+      : `${basePrompt}. Rich detail, natural lighting, cinematic quality.`;
     setPrompt(motionHint);
     setNotice('Промпт улучшен.');
   }
@@ -678,13 +682,6 @@ export default function VideoStudio() {
     <main className="min-h-screen bg-[#0b0d0f] text-white">
       <form onSubmit={(e) => { e.preventDefault(); void runGeneration(); }} className={`flex min-h-screen flex-col ${mainTab !== 'Cinema Studio' && mainTab !== 'CapCut' ? 'lg:flex-row' : ''}`}>
         <aside className={`w-full border-b border-white/10 bg-[#111315] lg:min-h-screen lg:w-[360px] lg:border-b-0 lg:border-r lg:overflow-y-auto${mainTab === 'Cinema Studio' || mainTab === 'CapCut' ? ' hidden' : ''}`}>
-          {/* Навигация */}
-          <div className="flex gap-1 border-b border-white/8 p-3 text-sm font-bold">
-            <button type="button" className="rounded-xl bg-white/10 px-4 py-2.5 text-white">Создать</button>
-            <Link to="/video-dashboard" className="rounded-xl px-4 py-2.5 text-slate-400 hover:text-white">Панель</Link>
-            <Link to="/video-settings" className="rounded-xl px-4 py-2.5 text-slate-400 hover:text-white">Настройки</Link>
-          </div>
-
           <div className="space-y-3 p-4">
 
             {/* Режим генерации */}
@@ -878,9 +875,10 @@ export default function VideoStudio() {
                             )}
                           </div>
                           <p className="mt-0.5 truncate text-[11px] text-slate-500">{model.description}</p>
-                          {model.estimatedCostLabel ? (
-                            <p className="mt-0.5 text-[11px] font-bold text-slate-600">{model.estimatedCostLabel}</p>
-                          ) : null}
+                          <p className="mt-0.5 text-[11px] font-bold text-slate-600">
+                            до {model.maxDuration}с · {model.aspectRatios.join(' / ')}
+                            {model.supportsAudio ? ' · со звуком' : ''}
+                          </p>
                         </div>
                       </button>
                     );
@@ -895,19 +893,6 @@ export default function VideoStudio() {
                 resolved={resolvedContext}
                 modelName={videoModels.find((m) => m.id === modelId)?.name}
               />
-            ) : null}
-
-            {/* Кредиты */}
-            {user && credits !== null ? (
-              <div className="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.04] px-4 py-2.5">
-                <span className="text-xs font-bold text-slate-400">Кредиты</span>
-                <div className="flex items-center gap-3">
-                  <span className={`text-sm font-black ${credits < (MODEL_CREDIT_COST[modelId] ?? 10) ? 'text-rose-300' : 'text-[#d7ff00]'}`}>
-                    {credits}
-                  </span>
-                  <span className="text-xs text-slate-500">−{MODEL_CREDIT_COST[modelId] ?? 10} за генерацию</span>
-                </div>
-              </div>
             ) : null}
 
             {/* Кнопка генерации */}
@@ -940,7 +925,7 @@ export default function VideoStudio() {
         <section className="min-w-0 flex-1 p-4 lg:p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-1 overflow-x-auto rounded-2xl bg-white/[0.035] p-1 text-sm font-bold text-slate-300">
-              {(['Создать видео', 'Cinema Studio', 'CapCut', 'История', 'Как это работает'] as const).map((tab) => (
+              {(['Создать видео', 'Cinema Studio', 'CapCut', 'История'] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -954,7 +939,6 @@ export default function VideoStudio() {
                   }`}
                 >
                   {tab === 'История' && <Folder className="h-4 w-4" />}
-                  {tab === 'Как это работает' && <BookOpen className="h-4 w-4" />}
                   {tab === 'Cinema Studio' && <PlayCircle className="h-4 w-4" />}
                   {tab === 'CapCut' && <FileVideo className="h-4 w-4" />}
                   {tab}
@@ -1410,7 +1394,7 @@ export default function VideoStudio() {
                                             <span className="shrink-0 rounded-full bg-[#d7ff00]/20 px-1.5 py-0.5 text-[9px] font-black uppercase text-[#d7ff00]">live</span>
                                           )}
                                         </div>
-                                        <span className="text-[11px] text-slate-500">{m.provider} · {m.estimatedCostLabel}</span>
+                                        <span className="text-[11px] text-slate-500">{m.provider} · до {m.maxDuration}с</span>
                                       </div>
                                       {cinemaModelId === m.id && (
                                         <div className="h-2 w-2 shrink-0 rounded-full bg-[#d7ff00]" />
@@ -1501,7 +1485,7 @@ export default function VideoStudio() {
                                 <div className="border-b border-white/10 px-3 py-2">
                                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Длительность</span>
                                 </div>
-                                {([5, 10, 15] as const).map((d) => (
+                                {cinemaDurationOptions.map((d) => (
                                   <button key={d} type="button"
                                     onClick={() => { setCinemaDuration(d); setCinemaDurationPickerOpen(false); }}
                                     className={`flex w-full items-center justify-between px-3 py-2.5 text-sm font-bold transition hover:bg-white/[0.06] ${cinemaDuration === d ? 'bg-white/[0.08] text-white' : 'text-slate-300'}`}
@@ -1688,22 +1672,6 @@ export default function VideoStudio() {
                 </div>
               )}
             </section>
-          ) : mainTab === 'Как это работает' ? (
-            <section className="rounded-[24px] border border-white/8 bg-[#141719] px-5 py-12 shadow-2xl shadow-black/30 md:px-8 lg:min-h-[720px] lg:px-10 lg:py-20">
-              <div className="max-w-6xl">
-                <h2 className="max-w-5xl text-4xl font-black uppercase leading-[0.95] tracking-tight text-white md:text-5xl lg:text-6xl">
-                  Создавайте видео одним щелчком мыши.
-                </h2>
-                <p className="mt-5 max-w-5xl text-sm leading-6 text-slate-400">
-                  Более <span className="rounded bg-blue-500 px-1 text-white">250 пресетов для управления камерой и кадрированием</span>, а также качественные визуальные эффекты.
-                </p>
-              </div>
-              <div className="mt-10 grid gap-8 xl:grid-cols-3">
-                <StepCard image="https://picsum.photos/seed/step1/900/675" title="Добавьте изображение" description="Загрузите изображение, видео или аудио, чтобы задать стиль, персонажа или стартовый кадр." />
-                <StepCard image="https://picsum.photos/seed/step2/900/675" title="Выберите пресет" description="Выберите формат и длительность в левой панели, затем опишите, что должно произойти в кадре." />
-                <StepCard image="https://picsum.photos/seed/step3/900/675" title="Получите видео" description="Нажмите «Сгенерировать», чтобы создать финальный ролик через Seedance 2.0." />
-              </div>
-            </section>
           ) : (
           <section className="rounded-[24px] border border-white/8 bg-[#141719] px-5 py-10 shadow-2xl shadow-black/30 md:px-8 lg:min-h-[720px] lg:px-10">
             {!currentGeneration && !loading && !error ? (
@@ -1719,7 +1687,7 @@ export default function VideoStudio() {
                 <div className="mt-10 grid gap-8 xl:grid-cols-3">
                   <StepCard image="https://picsum.photos/seed/step1/900/675" title="Добавьте изображение" description="Загрузите изображение, видео или аудио, чтобы задать стиль, персонажа или стартовый кадр." />
                   <StepCard image="https://picsum.photos/seed/step2/900/675" title="Выберите пресет" description="Выберите формат и длительность в левой панели, затем опишите, что должно произойти в кадре." />
-                  <StepCard image="https://picsum.photos/seed/step3/900/675" title="Получите видео" description="Нажмите «Сгенерировать», чтобы создать финальный ролик через Seedance 2.0." />
+                  <StepCard image="https://picsum.photos/seed/step3/900/675" title="Получите видео" description="Нажмите «Сгенерировать», чтобы создать финальный ролик через Google Veo." />
                 </div>
               </>
             ) : null}

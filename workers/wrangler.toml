@@ -6,3 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 FIREBASE_PROJECT_ID = "gp-market-f148c"
 VIDEO_STUDIO_ALLOWED_EMAILS = ""
+
+# Google Vertex AI (Veo / Imagen). Auth reuses FIREBASE_SERVICE_ACCOUNT_JSON,
+# which must have the "Vertex AI User" role (roles/aiplatform.user).
+VERTEX_PROJECT_ID = "gp-market-f148c"
+VERTEX_LOCATION = "us-central1"
+FIREBASE_STORAGE_BUCKET = "gp-market-f148c.firebasestorage.app"

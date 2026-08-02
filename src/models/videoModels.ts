@@ -18,15 +18,6 @@ const NO_REFS: ModelCapabilities = {
   supportsPropReference: false,
 };
 
-const SINGLE_CHARACTER: ModelCapabilities = {
-  maxReferenceImages: 1,
-  supportsMultiReference: false,
-  referenceMode: 'single_image',
-  supportsCharacterReference: true,
-  supportsLocationReference: false,
-  supportsPropReference: false,
-};
-
 const SINGLE_IMAGE: ModelCapabilities = {
   maxReferenceImages: 1,
   supportsMultiReference: false,
@@ -36,166 +27,100 @@ const SINGLE_IMAGE: ModelCapabilities = {
   supportsPropReference: false,
 };
 
-/** Seedance 2.0: up to 9 images via image_urls[] */
-const SEEDANCE_MULTI: ModelCapabilities = {
-  maxReferenceImages: 9,
-  supportsMultiReference: true,
-  referenceMode: 'image_urls',
+/** Veo takes one starting frame; Veo 3.1 also accepts a final frame. */
+const VEO_SINGLE_FRAME: ModelCapabilities = {
+  maxReferenceImages: 1,
+  supportsMultiReference: false,
+  referenceMode: 'single_image',
   supportsCharacterReference: true,
   supportsLocationReference: true,
-  supportsPropReference: true,
+  supportsPropReference: false,
 };
 
-// ─── Model registry ───────────────────────────────────────────────────────────
+// ─── Video model registry ─────────────────────────────────────────────────────
+// Every AI model here is Google. Model ids match the backend registries in
+// functions/src/providers/google/veoProvider.js and workers/src/providers.ts.
 
 export const videoModels: VideoModel[] = [
 
-  // ── Seedance ─────────────────────────────────────────────────────────────────
+  // ── Google Veo (Vertex AI) ──────────────────────────────────────────────────
   {
-    id: 'seedance-2',
-    name: 'Seedance 2.0',
-    provider: 'seedance',
-    status: 'coming_soon',
+    id: 'veo-3.1',
+    name: 'Google Veo 3.1',
+    provider: 'veo',
+    status: 'active',
     supportsTextToVideo: true,
     supportsImageToVideo: true,
-    supportsReferenceVideo: true,
+    supportsReferenceVideo: false,
     supportsAudio: true,
-    maxDuration: 15,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SEEDANCE_MULTI,
-    estimatedCostLabel: 'Нужен баланс на seedance2.app',
-    description: 'Seedance 2.0 — до 9 reference images, character + location + prop',
-  },
-
-  // ── Replicate ─────────────────────────────────────────────────────────────────
-  {
-    id: 'replicate-wan-t2v',
-    name: 'Wan 2.1 T2V',
-    provider: 'replicate',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: false,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 10,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: NO_REFS,
-    estimatedCostLabel: 'Нужен баланс на Replicate',
-    description: 'Wan 2.1 T2V — только текст, нет reference images',
+    maxDuration: 8,
+    supportedDurations: [4, 6, 8],
+    aspectRatios: ['16:9', '9:16'],
+    capabilities: VEO_SINGLE_FRAME,
+    description: 'Максимальное качество, звук и диалоги, 1080p, первый и последний кадр',
   },
   {
-    id: 'replicate-wan-i2v',
-    name: 'Wan 2.1 I2V',
-    provider: 'replicate',
-    status: 'coming_soon',
-    supportsTextToVideo: false,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 10,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: 'Нужен баланс на Replicate',
-    description: 'Wan 2.1 I2V — 1 reference image (character priority)',
-  },
-  {
-    id: 'replicate-kling',
-    name: 'Kling 1.5',
-    provider: 'replicate',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 10,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: 'Нужен баланс на Replicate',
-    description: 'Kling 1.5 — 1 reference image (character priority)',
-  },
-  {
-    id: 'replicate-luma',
-    name: 'Luma Ray',
-    provider: 'replicate',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: 'Нужен баланс на Replicate',
-    description: 'Luma Ray — 1 reference image',
-  },
-
-  // ── WaveSpeed ─────────────────────────────────────────────────────────────────
-  {
-    id: 'wavespeed-wan',
-    name: 'WaveSpeed Wan',
-    provider: 'wavespeed',
+    id: 'veo-3.1-fast',
+    name: 'Google Veo 3.1 Fast',
+    provider: 'veo',
     status: 'active',
     supportsTextToVideo: true,
     supportsImageToVideo: true,
     supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: '~$0.01–0.05 / видео',
-    description: 'WaveSpeed Wan 2.1/2.2 — 1 reference image',
-  },
-
-  // ── HuggingFace (disabled) ────────────────────────────────────────────────────
-  {
-    id: 'huggingface-cogvideox',
-    name: 'CogVideoX',
-    provider: 'huggingface',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: false,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 10,
-    aspectRatios: ['16:9'],
-    capabilities: NO_REFS,
-    estimatedCostLabel: 'Нужен платный HF Endpoint',
-    description: 'CogVideoX-5b — требует платного HF Endpoint',
+    supportsAudio: true,
+    maxDuration: 8,
+    supportedDurations: [4, 6, 8],
+    aspectRatios: ['16:9', '9:16'],
+    capabilities: VEO_SINGLE_FRAME,
+    description: 'Veo 3.1 быстрее, звук на месте — оптимальный выбор',
   },
   {
-    id: 'huggingface-opensora',
-    name: 'Open-Sora',
-    provider: 'huggingface',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: false,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 10,
-    aspectRatios: ['9:16', '16:9'],
-    capabilities: NO_REFS,
-    estimatedCostLabel: 'Нужен платный HF Endpoint',
-    description: 'Open-Sora — требует платного HF Endpoint',
-  },
-
-  // ── Leonardo ──────────────────────────────────────────────────────────────────
-  {
-    id: 'leonardo-motion',
-    name: 'Leonardo Motion',
-    provider: 'leonardo',
+    id: 'veo-3.0',
+    name: 'Google Veo 3',
+    provider: 'veo',
     status: 'active',
-    supportsTextToVideo: false,
+    supportsTextToVideo: true,
     supportsImageToVideo: true,
     supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['9:16', '16:9', '1:1'],
+    supportsAudio: true,
+    maxDuration: 8,
+    supportedDurations: [4, 6, 8],
+    aspectRatios: ['16:9', '9:16'],
     capabilities: SINGLE_IMAGE,
-    estimatedCostLabel: '~150 токенов / видео',
-    description: 'Leonardo AI Motion SVD — 1 image-to-video',
+    description: 'Veo 3 со звуком, 1080p',
+  },
+  {
+    id: 'veo-3.0-fast',
+    name: 'Google Veo 3 Fast',
+    provider: 'veo',
+    status: 'active',
+    supportsTextToVideo: true,
+    supportsImageToVideo: true,
+    supportsReferenceVideo: false,
+    supportsAudio: true,
+    maxDuration: 8,
+    supportedDurations: [4, 6, 8],
+    aspectRatios: ['16:9', '9:16'],
+    capabilities: SINGLE_IMAGE,
+    description: 'Быстрый Veo 3 со звуком',
+  },
+  {
+    id: 'veo-2.0',
+    name: 'Google Veo 2',
+    provider: 'veo',
+    status: 'active',
+    supportsTextToVideo: true,
+    supportsImageToVideo: true,
+    supportsReferenceVideo: false,
+    supportsAudio: false,
+    maxDuration: 8,
+    supportedDurations: [5, 6, 7, 8],
+    aspectRatios: ['16:9', '9:16'],
+    capabilities: SINGLE_IMAGE,
+    description: 'Veo 2, 720p, без звуковой дорожки',
   },
 
-  // ── JSON2Video ────────────────────────────────────────────────────────────────
+  // ── JSON2Video (шаблонное слайд-шоу, не ИИ-генерация) ───────────────────────
   {
     id: 'json2video',
     name: 'JSON2Video (слайд-шоу)',
@@ -206,120 +131,98 @@ export const videoModels: VideoModel[] = [
     supportsReferenceVideo: false,
     supportsAudio: false,
     maxDuration: 15,
+    supportedDurations: [5, 10, 15],
     aspectRatios: ['9:16', '16:9', '1:1'],
     capabilities: SINGLE_IMAGE,
-    estimatedCostLabel: 'По тарифу',
-    description: 'Шаблонное видео из фото + текст. Не AI-генерация.',
-  },
-
-  // ── FREE / Open-Source (HF — disabled) ───────────────────────────────────────
-  {
-    id: 'cogvideox-free',
-    name: 'CogVideoX Free',
-    provider: 'cogvideox',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['16:9', '9:16', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: 'Бесплатно (HuggingFace)',
-    description: 'CogVideoX-5b open-source',
-  },
-  {
-    id: 'ltx-fast',
-    name: 'LTX Fast',
-    provider: 'ltx',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: SINGLE_CHARACTER,
-    estimatedCostLabel: 'Бесплатно (HuggingFace)',
-    description: 'LTX-Video — быстрая генерация',
-  },
-  {
-    id: 'svd',
-    name: 'Stable Video Diffusion',
-    provider: 'svd',
-    status: 'coming_soon',
-    supportsTextToVideo: false,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['16:9'],
-    capabilities: SINGLE_IMAGE,
-    estimatedCostLabel: 'Бесплатно (HuggingFace)',
-    description: 'SVD XT — анимация изображения',
-  },
-  {
-    id: 'opensora-prep',
-    name: 'Open-Sora',
-    provider: 'opensora',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: false,
-    supportsReferenceVideo: false,
-    supportsAudio: false,
-    maxDuration: 5,
-    aspectRatios: ['9:16', '16:9'],
-    capabilities: NO_REFS,
-    estimatedCostLabel: 'Self-hosted',
-    description: 'Open-Sora — self-hosted GPU',
-  },
-
-  // ── Coming Soon ───────────────────────────────────────────────────────────────
-  {
-    id: 'veo',
-    name: 'Veo',
-    provider: 'veo',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: true,
-    supportsAudio: true,
-    maxDuration: 15,
-    aspectRatios: ['9:16', '16:9'],
-    capabilities: {
-      maxReferenceImages: 3,
-      supportsMultiReference: true,
-      referenceMode: 'image_urls',
-      supportsCharacterReference: true,
-      supportsLocationReference: true,
-      supportsPropReference: true,
-    },
-    estimatedCostLabel: 'Скоро',
-    description: 'Google Veo — ожидается',
-  },
-  {
-    id: 'sora',
-    name: 'Sora',
-    provider: 'sora',
-    status: 'coming_soon',
-    supportsTextToVideo: true,
-    supportsImageToVideo: true,
-    supportsReferenceVideo: true,
-    supportsAudio: true,
-    maxDuration: 15,
-    aspectRatios: ['9:16', '16:9', '1:1'],
-    capabilities: {
-      maxReferenceImages: 3,
-      supportsMultiReference: true,
-      referenceMode: 'image_urls',
-      supportsCharacterReference: true,
-      supportsLocationReference: true,
-      supportsPropReference: true,
-    },
-    estimatedCostLabel: 'Скоро',
-    description: 'OpenAI Sora — ожидается',
+    description: 'Шаблонное видео из фото + текст. Не ИИ-генерация.',
   },
 ];
+
+/** Default selection — best balance of quality and speed among the active models. */
+export const defaultVideoModelId = 'veo-3.1-fast';
+
+export function getVideoModel(modelId: string): VideoModel | undefined {
+  return videoModels.find((model) => model.id === modelId);
+}
+
+/** Durations the given model accepts; falls back to the global list. */
+export function getDurationsForModel(modelId: string): VideoDuration[] {
+  return getVideoModel(modelId)?.supportedDurations ?? durations;
+}
+
+/** Aspect ratios the given model accepts; falls back to the global list. */
+export function getAspectRatiosForModel(modelId: string): VideoAspectRatio[] {
+  return getVideoModel(modelId)?.aspectRatios ?? aspectRatios;
+}
+
+/** Snaps a duration to the nearest value the model supports. */
+export function clampDurationToModel(modelId: string, duration: VideoDuration): VideoDuration {
+  const allowed = getDurationsForModel(modelId);
+  if (allowed.includes(duration)) return duration;
+  return allowed.reduce(
+    (closest, candidate) => (Math.abs(candidate - duration) < Math.abs(closest - duration) ? candidate : closest),
+    allowed[0],
+  );
+}
+
+/** Falls back to the model's first aspect ratio when the current one is unsupported. */
+export function clampAspectRatioToModel(modelId: string, aspectRatio: VideoAspectRatio): VideoAspectRatio {
+  const allowed = getAspectRatiosForModel(modelId);
+  return allowed.includes(aspectRatio) ? aspectRatio : allowed[0];
+}
+
+// ─── Image model registry (Google only) ───────────────────────────────────────
+
+export interface ImageModel {
+  id: string;
+  name: string;
+  /** 'generate' creates from text, 'edit' transforms an existing image */
+  kind: 'generate' | 'edit';
+  aspectRatios: string[];
+  description: string;
+}
+
+export const imageModels: ImageModel[] = [
+  {
+    id: 'imagen-4',
+    name: 'Google Imagen 4',
+    kind: 'generate',
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    description: 'Фотореализм и корректный текст на изображении',
+  },
+  {
+    id: 'imagen-4-fast',
+    name: 'Google Imagen 4 Fast',
+    kind: 'generate',
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    description: 'Быстрее, качество чуть ниже',
+  },
+  {
+    id: 'imagen-4-ultra',
+    name: 'Google Imagen 4 Ultra',
+    kind: 'generate',
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    description: 'Максимальное качество Imagen 4',
+  },
+  {
+    id: 'imagen-3',
+    name: 'Google Imagen 3',
+    kind: 'generate',
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    description: 'Предыдущее поколение Imagen',
+  },
+  {
+    id: 'gemini-image',
+    name: 'Google Gemini Image',
+    kind: 'edit',
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    description: 'Редактирование готового фото текстом — фон, объекты, стиль',
+  },
+];
+
+export const defaultImageModelId = 'imagen-4';
+
+// ─── Shared option lists ──────────────────────────────────────────────────────
 
 export const videoModes = [
   { id: 'text_to_video', label: 'Text to Video' },
@@ -328,7 +231,7 @@ export const videoModes = [
 ] as const;
 
 export const aspectRatios: VideoAspectRatio[] = ['9:16', '16:9', '1:1'];
-export const durations: VideoDuration[] = [5, 10, 15];
+export const durations: VideoDuration[] = [4, 6, 8];
 export const stylePresets: VideoStylePreset[] = [
   'Cinematic', 'UGC', 'App Promo', 'AI Social Platform Ad',
   'School Viral Reel', 'Product Demo', 'Character Story',

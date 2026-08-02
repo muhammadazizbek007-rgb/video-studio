@@ -4,16 +4,11 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
-  orderBy,
   query,
   setDoc,
-  startAfter,
   updateDoc,
   where,
-  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
@@ -116,48 +111,4 @@ export async function setVideoGenerationStatus(
 
 export async function toggleSavedVideoGeneration(generationId: string, saved: boolean) {
   await updateVideoGeneration(generationId, { saved });
-}
-
-export type CreditLogEntry = {
-  id: string;
-  userId: string;
-  type: 'signup' | 'deduction' | 'grant' | 'promo';
-  amount: number;
-  modelId?: string;
-  promoCode?: string;
-  balanceBefore: number;
-  balanceAfter: number;
-  description: string;
-  grantedBy?: string;
-  createdAt: Timestamp;
-};
-
-export function subscribeToCredits(
-  userId: string,
-  onChange: (credits: number) => void,
-  onError: (error: Error) => void,
-): Unsubscribe {
-  return onSnapshot(
-    doc(db, 'users', userId),
-    (snap) => onChange(snap.exists() ? Number(snap.data()?.credits ?? 0) : 0),
-    onError,
-  );
-}
-
-export async function getCreditHistory(
-  userId: string,
-  pageSize = 20,
-  afterDoc?: QueryDocumentSnapshot,
-): Promise<{ entries: CreditLogEntry[]; lastDoc: QueryDocumentSnapshot | null }> {
-  let q = query(
-    collection(db, 'creditLogs'),
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc'),
-    limit(pageSize),
-  );
-  if (afterDoc) q = query(q, startAfter(afterDoc));
-  const snapshot = await getDocs(q);
-  const entries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as CreditLogEntry));
-  const lastDoc = snapshot.docs[snapshot.docs.length - 1] ?? null;
-  return { entries, lastDoc };
 }

@@ -1,28 +1,28 @@
 'use strict';
 
-const wavespeed = require('./wavespeedImageProvider');
+const imagen = require('../google/imagenProvider');
 
 const IMAGE_PROVIDERS = [
   {
-    id: 'wavespeed',
-    name: 'WaveSpeed HiDream',
+    id: 'google',
+    name: 'Google Imagen / Gemini Image',
     status: 'active',
-    description: 'Быстрая генерация изображений, модель HiDream-I1',
-    costCredits: 5,
+    description: 'Imagen 4 — генерация с нуля, Gemini Image — редактирование готового фото',
     supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
-    models: ['hidream-i1-fast', 'hidream-i1-full'],
+    models: imagen.IMAGE_MODEL_IDS,
+    defaultModel: imagen.DEFAULT_IMAGE_MODEL,
   },
 ];
 
 async function generateImage(params) {
-  const provider = String(params.provider || 'wavespeed').toLowerCase();
+  const provider = String(params.provider || 'google').toLowerCase();
 
   switch (provider) {
-    case 'wavespeed':
-      return wavespeed.generateImage(params);
+    case 'google':
+      return imagen.generateImage(params);
     default:
       throw new Error(
-        `Провайдер изображений '${provider}' не поддерживается. Доступные: wavespeed`
+        `Провайдер изображений '${provider}' не поддерживается. Доступные: google`,
       );
   }
 }

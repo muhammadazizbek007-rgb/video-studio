@@ -5,8 +5,7 @@ import { getAccessToken } from './google-auth';
 import { Firestore } from './firestore';
 import { handleGenerateMcpToken, handleGetMcpToken } from './handlers/mcp';
 import { handleGetClaudeSettings, handleSaveClaudeSettings, handleTestClaudeConnection } from './handlers/claude';
-import { handleGetUserCredits, handleGrantCredits, handleRedeemPromoCode } from './handlers/credits';
-import { handleStartVideoGeneration, handleCheckVideoGeneration, handleTestSeedanceConnection, handleTestProviderConnection } from './handlers/video';
+import { handleStartVideoGeneration, handleCheckVideoGeneration, handleTestVertexConnection, handleTestProviderConnection } from './handlers/video';
 import { handleSetAdminClaim } from './handlers/admin';
 import { handleMcp } from './mcp';
 
@@ -100,13 +99,10 @@ export default {
         case 'getClaudeSettings': result = await handleGetClaudeSettings(handlerCtx, data); break;
         case 'saveClaudeSettings': result = await handleSaveClaudeSettings(handlerCtx, data); break;
         case 'testClaudeConnection': result = await handleTestClaudeConnection(handlerCtx, data); break;
-        case 'getUserCredits': result = await handleGetUserCredits(handlerCtx, data); break;
-        case 'grantCredits': result = await handleGrantCredits(handlerCtx, data); break;
-        case 'redeemPromoCode': result = await handleRedeemPromoCode(handlerCtx, data); break;
         case 'startVideoGeneration': result = await handleStartVideoGeneration(handlerCtx, data); break;
         case 'checkVideoGeneration': result = await handleCheckVideoGeneration(handlerCtx, data); break;
         case 'setAdminClaim': result = await handleSetAdminClaim(handlerCtx, data); break;
-        case 'testSeedanceConnection': result = await handleTestSeedanceConnection(handlerCtx, data); break;
+        case 'testVertexConnection': result = await handleTestVertexConnection(handlerCtx, data); break;
         case 'testProviderConnection': result = await handleTestProviderConnection(handlerCtx, data); break;
         default: return errJson('not-found', `Unknown function: ${functionName}`, 404);
       }
