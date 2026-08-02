@@ -1,8 +1,64 @@
 import { Clapperboard } from 'lucide-react';
+import { useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import { Button, Card, Spinner } from '@/components/ui';
+import { Button, Card, Input, Spinner } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { api } from '@/lib/api';
+
+/**
+ * Google OAuth needs a real client id and a public callback URL, which a local checkout
+ * does not have — without this there is no way to get past this screen on a dev machine.
+ * `import.meta.env.DEV` is a compile-time constant, so the whole block below is dropped
+ * from a production bundle; the API independently refuses /auth/dev-login unless it was
+ * started with AUTH_DEV_LOGIN outside production.
+ */
+const DEV_SIGN_IN = import.meta.env.DEV;
+
+function DevSignIn() {
+  const [email, setEmail] = useState('dev@localhost');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.auth.devLogin(email.trim());
+      window.location.assign('/dashboard');
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Dev sign-in failed');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-2 border-t border-current/10 pt-5">
+      <p className="text-xs uppercase tracking-wider opacity-50">Local development only</p>
+      <div className="flex gap-2">
+        <Input
+          value={email}
+          aria-label="Development sign-in email"
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          loading={busy}
+          className="shrink-0 whitespace-nowrap"
+          onClick={() => void submit()}
+        >
+          Sign in
+        </Button>
+      </div>
+      {error ? (
+        <p role="alert" className="text-xs opacity-80">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function LoginPage() {
   const { t } = useLanguage();
@@ -37,6 +93,8 @@ export function LoginPage() {
             {t('login.continueWithGoogle')}
           </Button>
         )}
+
+        {DEV_SIGN_IN ? <DevSignIn /> : null}
       </Card>
     </div>
   );

@@ -75,6 +75,9 @@ const ru = {
   'mode.text_to_video': 'Текст → видео',
   'mode.image_to_video': 'Изображение → видео',
   'mode.reference_to_video': 'Референсы → видео',
+  'mode.short.text_to_video': 'Текст',
+  'mode.short.image_to_video': 'Изображение',
+  'mode.short.reference_to_video': 'Референсы',
 
   'status.pending': 'В очереди',
   'status.processing': 'Генерируется',
@@ -261,6 +264,9 @@ const uz: Dictionary = {
   'mode.text_to_video': 'Matn → video',
   'mode.image_to_video': 'Rasm → video',
   'mode.reference_to_video': 'Namunalar → video',
+  'mode.short.text_to_video': 'Matn',
+  'mode.short.image_to_video': 'Rasm',
+  'mode.short.reference_to_video': 'Namunalar',
 
   'status.pending': 'Navbatda',
   'status.processing': 'Yaratilmoqda',
@@ -443,6 +449,9 @@ const en: Dictionary = {
   'mode.text_to_video': 'Text → video',
   'mode.image_to_video': 'Image → video',
   'mode.reference_to_video': 'References → video',
+  'mode.short.text_to_video': 'Text',
+  'mode.short.image_to_video': 'Image',
+  'mode.short.reference_to_video': 'References',
 
   'status.pending': 'Queued',
   'status.processing': 'Generating',

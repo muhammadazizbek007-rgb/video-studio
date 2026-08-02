@@ -87,7 +87,8 @@ export function GenerationSettings({
 
   const modeOptions = MODES.map((option) => ({
     value: option,
-    label: t(`mode.${option}`),
+    // The long "Text → video" form overflows this column; MODE above supplies the context.
+    label: t(`mode.short.${option}`),
     disabled:
       option === 'text_to_video'
         ? false
@@ -102,6 +103,7 @@ export function GenerationSettings({
           {t('studio.mode')}
         </span>
         <SegmentedControl
+          fullWidth
           aria-label={t('studio.mode')}
           value={mode}
           disabled={disabled}
@@ -118,6 +120,7 @@ export function GenerationSettings({
           {t('studio.aspectRatio')}
         </span>
         <SegmentedControl
+          fullWidth
           aria-label={t('studio.aspectRatio')}
           value={aspectRatio}
           disabled={disabled}
@@ -134,6 +137,7 @@ export function GenerationSettings({
           {t('studio.duration')}
         </span>
         <SegmentedControl
+          fullWidth
           aria-label={t('studio.duration')}
           value={String(duration)}
           disabled={disabled}
