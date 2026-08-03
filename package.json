@@ -1,30 +1,26 @@
 {
   "name": "video-studio",
+  "version": "2.0.0",
   "private": true,
-  "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22"
   },
-  "dependencies": {
-    "clsx": "^2.1.1",
-    "firebase": "^12.11.0",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^7.13.1",
-    "tailwind-merge": "^3.5.0"
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test --filter=!@video-studio/e2e",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "e2e": "pnpm --filter @video-studio/e2e test",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.14",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.5.2",
-    "tailwindcss": "^4.1.14",
-    "typescript": "^5.8.2",
-    "vite": "^6.2.0"
+    "@biomejs/biome": "2.2.0",
+    "turbo": "2.5.4",
+    "typescript": "5.9.3"
   }
 }

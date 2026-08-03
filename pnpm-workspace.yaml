@@ -1,0 +1,11 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'e2e'
+
+# Vite/Tailwind/esbuild ship platform binaries that must run from the store.
+onlyBuiltDependencies:
+  - '@biomejs/biome'
+  - '@tailwindcss/oxide'
+  - esbuild
+  - mongodb-memory-server

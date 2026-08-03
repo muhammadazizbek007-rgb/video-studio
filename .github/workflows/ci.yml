@@ -1,0 +1,232 @@
+# Continuous integration for the pnpm workspace (apps/api, apps/web, packages/shared, e2e).
+#
+# Everything runs through the ROOT scripts so turbo's `dependsOn: ["^build"]` builds
+# packages/shared before anything typechecks or tests against it. Do not swap these
+# for per-package commands.
+#
+# No secrets are needed: the e2e job runs the API with FAKE_VERTEX=true (no Vertex AI
+# network calls) and AUTH_DEV_LOGIN=true (POST /api/auth/dev-login instead of Google).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Superseded pushes to the same ref stop burning runners.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No `version:` on purpose — action-setup reads the `packageManager` field of
+      # the root package.json, so CI can never drift from the repo's pnpm version.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # `pnpm test` is `turbo run test`, and turbo runs the `test` script of EVERY
+      # workspace package — including e2e, whose `test` is `playwright test`. Running it
+      # here would boot the servers a second time on a runner with no browsers, so this
+      # job takes the same task graph minus that one package. The e2e job below owns it.
+      - name: Unit tests
+        run: pnpm exec turbo run test --filter='!@video-studio/e2e'
+
+      - name: Build
+        run: pnpm build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # An ephemeral mongo whose data directory is a tmpfs: nothing touches the disk and
+    # every run starts from an empty database. The e2e workspace may still spin up its
+    # own mongodb-memory-server; MONGODB_URI below is what the API uses when it does not.
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --tmpfs /data/db
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+
+    env:
+      NODE_ENV: test
+      PORT: '8080'
+      LOG_LEVEL: warn
+      MONGODB_URI: mongodb://127.0.0.1:27017/video-studio-e2e
+      # Makes e2e/start-api.ts reuse the service container above instead of downloading
+      # and booting its own mongod. Deliberately a distinct name from MONGODB_URI: a
+      # developer with that exported locally must never have e2e run against their database.
+      VS_E2E_MONGODB_URI: mongodb://127.0.0.1:27017/video-studio-e2e
+      API_PUBLIC_URL: http://localhost:8080
+      WEB_APP_URL: http://localhost:4173
+      CORS_ORIGINS: http://localhost:4173,http://localhost:5173
+      AUTH_DEV_LOGIN: 'true'
+      FAKE_VERTEX: 'true'
+      MCP_ENABLED: 'true'
+      MEDIA_PUBLIC_BASE_URL: /media
+      # Baked into the SPA bundle by `pnpm build`, so it has to be set before it.
+      VITE_API_URL: http://localhost:8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Generated per run rather than committed, so no credential-shaped literal ever
+      # lives in this file. The API only requires >= 32 characters.
+      - name: Generate an ephemeral JWT secret
+        run: echo "AUTH_JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+
+      # `pnpm --filter <name> test` exits 0 when the filter matches nothing, which would
+      # turn a missing or misnamed e2e workspace into a green run. Fail here instead.
+      - name: Verify the e2e workspace is wired up
+        run: |
+          set -euo pipefail
+          if [ ! -f e2e/package.json ]; then
+            echo "::error file=e2e/package.json::e2e/package.json is missing — pnpm e2e would match no project and pass silently"
+            exit 1
+          fi
+          name="$(jq -r '.name // ""' e2e/package.json)"
+          if [ "$name" != "@video-studio/e2e" ]; then
+            echo "::error file=e2e/package.json::expected package name @video-studio/e2e, found '${name}'"
+            exit 1
+          fi
+          if ! jq -e '.scripts.test // empty' e2e/package.json >/dev/null; then
+            echo "::error file=e2e/package.json::@video-studio/e2e has no \"test\" script"
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+        env:
+          # Vite derives `isProduction` from NODE_ENV before it falls back to the build
+          # mode, so the job-wide NODE_ENV=test would otherwise ship a development React
+          # bundle — not the artefact this job is supposed to be exercising. The API
+          # still runs with NODE_ENV=test, which is what keeps dev-login reachable.
+          NODE_ENV: production
+
+      # Boot the built API against the real service container before Playwright gets a
+      # chance to swallow a startup failure inside its webServer output. If the app
+      # cannot start, this step prints the whole log and fails the job.
+      - name: Smoke-check the built API
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/api-smoke.log"
+          node dist/index.js > "$log" 2>&1 &
+          api_pid=$!
+          ready=0
+          for _ in $(seq 1 40); do
+            if ! kill -0 "$api_pid" 2>/dev/null; then
+              break
+            fi
+            if curl -fsS --max-time 5 "http://127.0.0.1:${PORT}/api/health/ready" >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          kill "$api_pid" 2>/dev/null || true
+          wait "$api_pid" 2>/dev/null || true
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::the API never reported ready on /api/health/ready"
+            echo '----- api log -----'
+            cat "$log" || true
+            exit 1
+          fi
+          echo 'API reached /api/health/ready'
+
+      - name: Resolve the Playwright version
+        id: playwright
+        run: |
+          set -euo pipefail
+          version="$(pnpm --filter @video-studio/e2e exec playwright --version | tr -dc '0-9.')"
+          if [ -z "$version" ]; then
+            echo '::error::could not determine the installed Playwright version'
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @video-studio/e2e exec playwright install --with-deps
+
+      # The browser binaries are cached, the apt libraries they link against are not.
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @video-studio/e2e exec playwright install-deps
+
+      - name: Run end-to-end tests
+        run: pnpm e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+            e2e/blob-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload API startup log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-smoke-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/api-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7

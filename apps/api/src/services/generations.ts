@@ -1,0 +1,246 @@
+import type {
+  CreateGenerationInput,
+  VeoModelSpec,
+  VideoAspectRatio,
+  VideoGenerationStatus,
+} from '@video-studio/shared';
+import { getVeoModel, resolveAspectRatio, resolveDuration } from '@video-studio/shared';
+import type { FilterQuery, HydratedDocument } from 'mongoose';
+import { Types } from 'mongoose';
+import type { AuthUser } from '../auth/plugin.js';
+import { type GenerationDoc, GenerationModel } from '../db/models/generation.js';
+import { ApiError, isApiError } from '../errors.js';
+import { logger } from '../logger.js';
+import { getStorage } from '../storage/index.js';
+import { checkVeoOperation, startVeoOperation } from '../vertex/veo.js';
+
+export type GenerationDocument = HydratedDocument<GenerationDoc>;
+
+export interface GenerationPage {
+  items: GenerationDocument[];
+  nextCursor: string | null;
+}
+
+export function isTerminalStatus(status: VideoGenerationStatus): boolean {
+  return status === 'completed' || status === 'failed';
+}
+
+function messageOf(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== '') return error.message;
+  return 'Video generation failed.';
+}
+
+function resolveModel(modelId: string): VeoModelSpec {
+  const spec = getVeoModel(modelId);
+  if (!spec) {
+    throw new ApiError('invalid-argument', `Unknown video model: ${modelId}.`);
+  }
+  return spec;
+}
+
+function toObjectId(value: string, what: string): Types.ObjectId {
+  if (!Types.ObjectId.isValid(value)) {
+    throw new ApiError('not-found', `${what} not found.`);
+  }
+  return new Types.ObjectId(value);
+}
+
+export async function createGeneration(
+  user: AuthUser,
+  input: CreateGenerationInput,
+): Promise<GenerationDocument> {
+  const spec = resolveModel(input.modelId);
+
+  let aspectRatio: VideoAspectRatio;
+  try {
+    aspectRatio = resolveAspectRatio(spec, input.aspectRatio);
+  } catch (error) {
+    throw new ApiError('invalid-argument', messageOf(error));
+  }
+  const duration = resolveDuration(spec, input.duration);
+
+  const referenceImageUrls = input.referenceImageUrls ?? [];
+  if (referenceImageUrls.length > 0 && !spec.supportsImageToVideo) {
+    throw new ApiError('invalid-argument', `${spec.name} does not support image-to-video.`);
+  }
+  if (input.lastFrameImageUrl && !spec.supportsLastFrame) {
+    throw new ApiError('invalid-argument', `${spec.name} does not support a closing frame.`);
+  }
+
+  const doc = await GenerationModel.create({
+    userId: toObjectId(user.id, 'Account'),
+    prompt: input.prompt,
+    enrichedPrompt: input.enrichedPrompt,
+    modelId: spec.id,
+    mode: input.mode,
+    aspectRatio,
+    duration,
+    stylePreset: input.stylePreset,
+    cameraMotion: input.cameraMotion,
+    status: 'pending',
+    saved: false,
+    referenceImageUrls,
+    lastFrameImageUrl: input.lastFrameImageUrl,
+    elements: input.elements ?? [],
+    referenceCount: referenceImageUrls.length,
+  });
+
+  try {
+    const started = await startVeoOperation({
+      generationId: doc._id.toString(),
+      userId: user.id,
+      prompt: input.enrichedPrompt ?? input.prompt,
+      modelId: spec.id,
+      aspectRatio,
+      duration,
+      stylePreset: input.stylePreset,
+      cameraMotion: input.cameraMotion,
+      referenceImageUrls,
+      lastFrameImageUrl: input.lastFrameImageUrl,
+    });
+
+    doc.status = 'processing';
+    doc.vertexOperationName = started.operationName;
+    doc.vertexModel = started.vertexModel;
+    await doc.save();
+    return doc;
+  } catch (error) {
+    // The client watches the record, not this HTTP response — a start failure that
+    // only ever surfaced here would leave the row stuck on 'pending' forever.
+    doc.status = 'failed';
+    doc.errorMessage = messageOf(error);
+    await doc.save().catch((saveError: unknown) => {
+      logger.error(
+        { err: saveError, generationId: doc._id.toString() },
+        'could not persist the generation start failure',
+      );
+    });
+    throw error;
+  }
+}
+
+export async function syncGeneration(doc: GenerationDocument): Promise<GenerationDocument> {
+  if (isTerminalStatus(doc.status)) return doc;
+
+  const { vertexModel, vertexOperationName } = doc;
+  if (!vertexModel || !vertexOperationName) {
+    doc.status = 'failed';
+    doc.errorMessage = doc.errorMessage ?? 'The generation was never handed to Vertex AI.';
+    await doc.save();
+    return doc;
+  }
+
+  try {
+    const result = await checkVeoOperation({
+      vertexModel,
+      operationName: vertexOperationName,
+      userId: doc.userId.toString(),
+      generationId: doc._id.toString(),
+    });
+
+    if (result.status === 'processing') {
+      if (doc.status !== 'processing') {
+        doc.status = 'processing';
+        await doc.save();
+      }
+      return doc;
+    }
+
+    if (result.status === 'completed') {
+      doc.status = 'completed';
+      doc.resultVideoUrl = result.videoUrl;
+      doc.resultStoragePath = result.storagePath;
+      doc.errorMessage = undefined;
+    } else {
+      doc.status = 'failed';
+      doc.errorMessage = result.error;
+    }
+
+    await doc.save();
+    return doc;
+  } catch (error) {
+    // 'unavailable' means Vertex was briefly unreachable, so the record stays on
+    // 'processing' and the next poll retries. Every other fault is terminal —
+    // the browser poller only ever stops on a terminal status.
+    if (isApiError(error) && error.code === 'unavailable') throw error;
+
+    logger.error(
+      { err: error, generationId: doc._id.toString() },
+      'veo poll failed, marking the generation as failed',
+    );
+    doc.status = 'failed';
+    doc.errorMessage = messageOf(error);
+    await doc.save();
+    return doc;
+  }
+}
+
+function encodeCursor(doc: GenerationDocument): string {
+  const raw = `${doc.createdAt.toISOString()}|${doc._id.toString()}`;
+  return Buffer.from(raw, 'utf8').toString('base64url');
+}
+
+function decodeCursor(cursor: string): { createdAt: Date; id: Types.ObjectId } {
+  const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+  const separator = raw.lastIndexOf('|');
+  const isoPart = separator === -1 ? '' : raw.slice(0, separator);
+  const idPart = separator === -1 ? '' : raw.slice(separator + 1);
+  const createdAt = new Date(isoPart);
+
+  if (Number.isNaN(createdAt.getTime()) || !Types.ObjectId.isValid(idPart)) {
+    throw new ApiError('invalid-argument', 'The pagination cursor is not valid.');
+  }
+  return { createdAt, id: new Types.ObjectId(idPart) };
+}
+
+export async function listGenerations(
+  userId: string,
+  options: { limit: number; cursor?: string },
+): Promise<GenerationPage> {
+  const limit = Math.min(Math.max(Math.trunc(options.limit), 1), 100);
+
+  const filter: FilterQuery<GenerationDoc> = { userId: toObjectId(userId, 'Account') };
+  if (options.cursor) {
+    const { createdAt, id } = decodeCursor(options.cursor);
+    // Keyset, not skip: _id breaks the tie so two rows sharing a millisecond
+    // can never be shown twice or skipped between pages.
+    filter.$or = [{ createdAt: { $lt: createdAt } }, { createdAt, _id: { $lt: id } }];
+  }
+
+  const docs = await GenerationModel.find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit + 1)
+    .exec();
+
+  const hasMore = docs.length > limit;
+  const items = hasMore ? docs.slice(0, limit) : docs;
+  const last = items.at(-1);
+
+  return { items, nextCursor: hasMore && last ? encodeCursor(last) : null };
+}
+
+export async function requireOwned(id: string, userId: string): Promise<GenerationDocument> {
+  const doc = await GenerationModel.findById(toObjectId(id, 'Generation')).exec();
+  if (!doc) {
+    throw new ApiError('not-found', 'Generation not found.');
+  }
+  if (doc.userId.toString() !== userId) {
+    throw new ApiError('permission-denied', 'This generation belongs to another account.');
+  }
+  return doc;
+}
+
+export async function deleteGeneration(doc: GenerationDocument): Promise<void> {
+  const storagePath = doc.resultStoragePath;
+  if (storagePath) {
+    await getStorage()
+      .remove(storagePath)
+      .catch((error: unknown) => {
+        logger.warn(
+          { err: error, generationId: doc._id.toString() },
+          'could not remove the stored video, deleting the record anyway',
+        );
+      });
+  }
+  await doc.deleteOne();
+}

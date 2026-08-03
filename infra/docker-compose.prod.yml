@@ -1,0 +1,128 @@
+# Production stack for the single VPS.
+#
+# Expected on-disk layout (created by infra/scripts/provision-vps.sh):
+#
+#   /opt/video-studio/
+#   ├── current/                     <- this directory: a copy of the repo's infra/
+#   │   ├── docker-compose.prod.yml
+#   │   ├── .env                     <- written by deploy.sh (GHCR_OWNER, IMAGE_TAG)
+#   │   ├── nginx/
+#   │   └── scripts/
+#   ├── releases/<timestamp>/        <- snapshots of previous current/ trees
+#   └── shared/
+#       ├── env/api.env              <- API secrets, 0600, never in git
+#       ├── env/deploy.env           <- GHCR_OWNER / GHCR_USER, no secrets
+#       ├── state/{current_tag,previous_tag}
+#       ├── certs/{fullchain.pem,privkey.pem}
+#       ├── certbot/www/             <- ACME http-01 webroot
+#       ├── backups/
+#       └── logs/
+#
+# Nothing is built here. Images come from GHCR; a deploy is a tag change plus
+# `docker compose up -d`.
+#
+#   docker compose -f /opt/video-studio/current/docker-compose.prod.yml up -d
+
+name: video-studio
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  mongo:
+    image: mongo:${MONGO_TAG:-7}
+    restart: unless-stopped
+    # Deliberately not published to the host: the only route to the database is
+    # the internal `data` network.
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - data
+    logging: *logging
+
+  api:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set in .env}/video-studio-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - ../shared/env/api.env
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      MEDIA_ROOT: /app/var/media
+    volumes:
+      # Generated videos and uploads live in a named volume so a redeploy — which
+      # replaces the container wholesale — does not delete a user's library.
+      - media:/app/var/media
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/api/health/ready']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - data
+      - edge
+    logging: *logging
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set in .env}/video-studio-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge
+    logging: *logging
+
+  nginx:
+    image: nginx:${NGINX_TAG:-1.27-alpine}
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # Starts out as a self-signed placeholder; provisioning replaces the two files
+      # with symlinks into /etc/letsencrypt once a certificate has been issued.
+      - ../shared/certs:/etc/nginx/certs:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ../shared/certbot/www:/var/www/certbot:ro
+    depends_on:
+      - api
+      - web
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge
+    logging: *logging
+
+volumes:
+  mongo-data:
+  mongo-config:
+  media:
+
+networks:
+  edge:
+  data:
+    internal: true
