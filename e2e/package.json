@@ -10,7 +10,7 @@
   "devDependencies": {
     "@playwright/test": "^1.50.0",
     "@types/node": "^22.10.5",
-    "mongodb-memory-server": "^10.1.4",
+    "mongodb-memory-server": "^11.2.0",
     "tsx": "^4.19.2",
     "typescript": "5.9.3"
   }
