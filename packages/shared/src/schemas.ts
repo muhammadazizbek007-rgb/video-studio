@@ -146,3 +146,130 @@ export const paginationSchema = z.object({
   cursor: z.string().min(1).optional(),
 });
 export type PaginationInput = z.infer<typeof paginationSchema>;
+
+/**
+ * Storyboards — the Cinema Studio tab's unit of work.
+ *
+ * A storyboard owns an ordered list of segments; each segment carries the frames it was
+ * built from and, once generated, the clip itself. Generations stay the single record of
+ * "something was sent to Veo" and are linked back by id, so history and storyboards never
+ * disagree about what was produced.
+ */
+
+export const MAX_STORYBOARD_SEGMENTS = 12;
+
+/**
+ * A file in our own storage. `path` is the storage key: the server needs it to delete the
+ * object later, and without it every replaced frame would leak a file on disk forever.
+ */
+export const storedFileSchema = z.object({
+  url: z.string().min(1),
+  path: z.string().min(1).optional(),
+});
+export type StoredFile = z.infer<typeof storedFileSchema>;
+
+export const storyboardExportStatusSchema = z.enum(['idle', 'processing', 'completed', 'failed']);
+export type StoryboardExportStatus = z.infer<typeof storyboardExportStatusSchema>;
+
+export const storyboardSegmentDtoSchema = z.object({
+  index: z.number().int().min(0),
+  firstFrameUrl: z.string().optional(),
+  lastFrameUrl: z.string().optional(),
+  videoUrl: z.string().optional(),
+  durationSeconds: z.number().positive().optional(),
+  generationId: z.string().optional(),
+  /** Mirrored from the linked generation so one storyboard read tells the client everything. */
+  status: videoGenerationStatusSchema.optional(),
+  errorMessage: z.string().optional(),
+});
+export type StoryboardSegmentDto = z.infer<typeof storyboardSegmentDtoSchema>;
+
+export const storyboardDtoSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  title: z.string(),
+  prompt: z.string(),
+  modelId: z.string().min(1),
+  aspectRatio: videoAspectRatioSchema,
+  duration: videoDurationSchema,
+  stylePreset: videoStylePresetSchema,
+  cameraMotion: cameraMotionSchema,
+  segments: z.array(storyboardSegmentDtoSchema),
+  exportStatus: storyboardExportStatusSchema,
+  exportUrl: z.string().optional(),
+  exportError: z.string().optional(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type StoryboardDto = z.infer<typeof storyboardDtoSchema>;
+
+const storyboardSettingsShape = {
+  title: z.string().max(200).optional(),
+  prompt: z.string().max(8000).optional(),
+  modelId: z.string().min(1).optional(),
+  aspectRatio: videoAspectRatioSchema.optional(),
+  duration: videoDurationSchema.optional(),
+  stylePreset: videoStylePresetSchema.optional(),
+  cameraMotion: cameraMotionSchema.optional(),
+};
+
+export const createStoryboardSchema = z.object({
+  ...storyboardSettingsShape,
+  segmentCount: z.number().int().min(1).max(MAX_STORYBOARD_SEGMENTS).optional(),
+});
+export type CreateStoryboardInput = z.infer<typeof createStoryboardSchema>;
+
+export const updateStoryboardSchema = z.object({
+  ...storyboardSettingsShape,
+  /** Growing appends empty segments; shrinking drops the trailing ones and their uploads. */
+  segmentCount: z.number().int().min(1).max(MAX_STORYBOARD_SEGMENTS).optional(),
+});
+export type UpdateStoryboardInput = z.infer<typeof updateStoryboardSchema>;
+
+/**
+ * Absent means "leave as it is", `null` means "clear it", an object means "set it" — the
+ * three states a slot can be moved between, distinguishable in one request shape.
+ */
+const slotPatchSchema = z.union([storedFileSchema, z.null()]).optional();
+
+export const updateStoryboardSegmentSchema = z.object({
+  firstFrame: slotPatchSchema,
+  lastFrame: slotPatchSchema,
+  video: slotPatchSchema,
+  durationSeconds: z.number().positive().max(600).optional(),
+});
+export type UpdateStoryboardSegmentInput = z.infer<typeof updateStoryboardSegmentSchema>;
+
+/**
+ * MCP connector keys.
+ *
+ * Claude's custom-connector dialog accepts a URL and nothing else — there is no field for
+ * an `Authorization` header — so the key travels inside the connector URL itself. That
+ * makes the URL a bearer secret: it is returned exactly once, at issue time, and every
+ * later read gives only a hint and timestamps.
+ */
+
+export const mcpKeyStatusDtoSchema = z.object({
+  /** Whether this deployment serves MCP at all; a key is useless when it does not. */
+  enabled: z.boolean(),
+  hasKey: z.boolean(),
+  /** Last few characters of the key — enough to tell which one a device is using. */
+  hint: z.string().optional(),
+  createdAt: z.iso.datetime().optional(),
+  lastUsedAt: z.iso.datetime().optional(),
+});
+export type McpKeyStatusDto = z.infer<typeof mcpKeyStatusDtoSchema>;
+
+export const mcpKeyIssuedDtoSchema = z.object({
+  /** The full connector URL. The only time the secret is ever sent to a client. */
+  url: z.string().min(1),
+  hint: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export type McpKeyIssuedDto = z.infer<typeof mcpKeyIssuedDtoSchema>;
+
+export const generateSegmentSchema = z.object({
+  /** Overrides the storyboard prompt for this one segment; the storyboard's is the default. */
+  prompt: z.string().min(1).max(8000).optional(),
+});
+export type GenerateSegmentInput = z.infer<typeof generateSegmentSchema>;

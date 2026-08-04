@@ -1,6 +1,7 @@
 import type { ImageModelSpec, VeoModelSpec } from '@video-studio/shared';
 import { LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { McpConnector } from '@/components/settings/McpConnector';
 import { Badge, Button, Card, Select, Skeleton, ThemeToggle } from '@/components/ui';
 import { useTheme } from '@/components/ui/useTheme';
 import { ElementLibrary } from '@/components/video/ElementLibrary';
@@ -106,6 +107,10 @@ export function SettingsPage() {
           </Select>
           <ThemeToggle label={theme === 'dark' ? t('theme.toLight') : t('theme.toDark')} />
         </div>
+      </Card>
+
+      <Card className="p-4">
+        <McpConnector />
       </Card>
 
       <Card className="p-4">

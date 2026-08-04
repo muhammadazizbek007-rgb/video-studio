@@ -11,6 +11,7 @@ import { queryClient } from '@/lib/queryClient';
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const StudioPage = lazy(() => import('@/pages/StudioPage'));
+const CinemaStudioPage = lazy(() => import('@/pages/CinemaStudioPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RouteFallback() {
@@ -42,6 +43,7 @@ export default function App() {
                 >
                   <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/studio" element={<StudioPage />} />
+                  <Route path="/cinema" element={<CinemaStudioPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />

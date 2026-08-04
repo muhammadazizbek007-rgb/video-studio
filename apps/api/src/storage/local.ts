@@ -43,6 +43,16 @@ export function createLocalStorage(options: LocalStorageOptions): StorageDriver 
   return {
     resolveUrl,
 
+    localPath(key): string | null {
+      try {
+        return safeKey(key).absolute;
+      } catch {
+        // An unusable key is not an error here: the caller only wants to know whether a
+        // filesystem shortcut exists, and falls back to the URL when it does not.
+        return null;
+      }
+    },
+
     async save({ key, data, contentType }): Promise<StoredObject> {
       const { key: normalised, absolute } = safeKey(key);
       await mkdir(dirname(absolute), { recursive: true });

@@ -2,12 +2,20 @@ import {
   apiErrorSchema,
   type CreateElementInput,
   type CreateGenerationInput,
+  type CreateStoryboardInput,
   type EnrichPromptInput,
   elementDtoSchema,
+  type GenerateSegmentInput,
   type GenerationDto,
   generationDtoSchema,
+  mcpKeyIssuedDtoSchema,
+  mcpKeyStatusDtoSchema,
+  type StoryboardDto,
+  storyboardDtoSchema,
   type UpdateElementInput,
   type UpdateGenerationInput,
+  type UpdateStoryboardInput,
+  type UpdateStoryboardSegmentInput,
   userDtoSchema,
   videoAspectRatioSchema,
   videoDurationSchema,
@@ -80,8 +88,17 @@ const enrichResponseSchema = z.object({
   enrichedPrompt: z.string(),
 });
 
+const storyboardPageSchema = z.object({
+  items: z.array(storyboardDtoSchema),
+  nextCursor: z.string().nullable(),
+});
+
+const storyboardCapabilitiesSchema = z.object({ serverStitching: z.boolean() });
+
 export type ModelsResponse = z.infer<typeof modelsResponseSchema>;
 export type GenerationPage = z.infer<typeof generationPageSchema>;
+export type StoryboardPage = z.infer<typeof storyboardPageSchema>;
+export type StoryboardCapabilities = z.infer<typeof storyboardCapabilitiesSchema>;
 export type UploadResult = z.infer<typeof uploadResponseSchema>;
 
 interface RequestOptions {
@@ -264,6 +281,66 @@ export const api = {
       };
     },
   },
+  storyboards: {
+    list: (limit = 20) => requestJson('/storyboards', storyboardPageSchema, { query: { limit } }),
+    get: (id: string) => requestJson(`/storyboards/${id}`, storyboardDtoSchema),
+    create: (input: CreateStoryboardInput = {}) =>
+      requestJson('/storyboards', storyboardDtoSchema, { method: 'POST', body: input }),
+    update: (id: string, input: UpdateStoryboardInput) =>
+      requestJson(`/storyboards/${id}`, storyboardDtoSchema, { method: 'PATCH', body: input }),
+    remove: async (id: string): Promise<void> => {
+      await send(`/storyboards/${id}`, { method: 'DELETE' });
+    },
+    updateSegment: (id: string, index: number, input: UpdateStoryboardSegmentInput) =>
+      requestJson(`/storyboards/${id}/segments/${index}`, storyboardDtoSchema, {
+        method: 'PATCH',
+        body: input,
+      }),
+    generateSegment: (id: string, index: number, input: GenerateSegmentInput = {}) =>
+      requestJson(`/storyboards/${id}/segments/${index}/generate`, storyboardDtoSchema, {
+        method: 'POST',
+        body: input,
+      }),
+    clearSegmentGeneration: (id: string, index: number) =>
+      requestJson(`/storyboards/${id}/segments/${index}/generation`, storyboardDtoSchema, {
+        method: 'DELETE',
+      }),
+    export: (id: string) =>
+      requestJson(`/storyboards/${id}/export`, storyboardDtoSchema, { method: 'POST' }),
+    capabilities: () => requestJson('/storyboards/capabilities', storyboardCapabilitiesSchema),
+    /** One stream for the whole board: every segment's progress arrives on this connection. */
+    stream: (
+      id: string,
+      onUpdate: (storyboard: StoryboardDto) => void,
+      onError?: (event: Event) => void,
+    ): (() => void) => {
+      if (typeof EventSource === 'undefined') {
+        onError?.(new Event('error'));
+        return () => {};
+      }
+      const source = new EventSource(`${API_BASE}/api/storyboards/${id}/events`, {
+        withCredentials: true,
+      });
+      const handleMessage = (event: MessageEvent<string>) => {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        const parsed = storyboardDtoSchema.safeParse(payload);
+        if (parsed.success) onUpdate(parsed.data);
+      };
+      const handleError = (event: Event) => onError?.(event);
+      source.addEventListener('storyboard', handleMessage as EventListener);
+      source.addEventListener('error', handleError);
+      return () => {
+        source.removeEventListener('storyboard', handleMessage as EventListener);
+        source.removeEventListener('error', handleError);
+        source.close();
+      };
+    },
+  },
   elements: {
     list: () => requestJson('/elements', z.array(elementDtoSchema)),
     create: (input: CreateElementInput) =>
@@ -279,6 +356,14 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
       return requestJson('/media/upload', uploadResponseSchema, { method: 'POST', formData });
+    },
+  },
+  mcp: {
+    key: () => requestJson('/mcp/key', mcpKeyStatusDtoSchema),
+    /** The response is the one and only copy of the secret — it cannot be read back. */
+    issueKey: () => requestJson('/mcp/key', mcpKeyIssuedDtoSchema, { method: 'POST' }),
+    revokeKey: async (): Promise<void> => {
+      await send('/mcp/key', { method: 'DELETE' });
     },
   },
   prompt: {

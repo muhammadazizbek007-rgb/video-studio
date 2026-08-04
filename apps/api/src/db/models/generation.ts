@@ -43,6 +43,9 @@ export interface GenerationDoc {
   referenceCount: number;
   vertexOperationName?: string;
   vertexModel?: string;
+  /** Set when the generation was started from a storyboard segment rather than the studio. */
+  storyboardId?: Types.ObjectId;
+  segmentIndex?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,12 +86,17 @@ const generationSchema = new Schema<GenerationDoc>(
     referenceCount: { type: Number, required: true, default: 0 },
     vertexOperationName: { type: String },
     vertexModel: { type: String },
+    storyboardId: { type: Schema.Types.ObjectId, ref: 'Storyboard' },
+    segmentIndex: { type: Number },
   },
   { timestamps: true },
 );
 
 // Serves the cursor-paginated history list, which is always scoped to one user.
 generationSchema.index({ userId: 1, createdAt: -1 });
+
+// The background reconciler sweeps by status and staleness, never by user.
+generationSchema.index({ status: 1, updatedAt: 1 });
 
 export const GenerationModel: Model<GenerationDoc> =
   (mongoose.models.Generation as Model<GenerationDoc> | undefined) ??

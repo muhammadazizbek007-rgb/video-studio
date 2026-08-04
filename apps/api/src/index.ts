@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { connectDb, disconnectDb } from './db/connect.js';
 import { getEnv } from './env.js';
 import { logger } from './logger.js';
+import { startReconciler, stopReconciler } from './services/reconciler.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -12,6 +13,9 @@ async function main(): Promise<void> {
 
   const app = await buildApp();
   await app.listen({ host: '0.0.0.0', port: env.port });
+
+  // Started after listen so a failure to bind the port never leaves a sweep running.
+  startReconciler();
 
   logger.info(
     {
@@ -39,6 +43,7 @@ async function main(): Promise<void> {
 
     void (async () => {
       try {
+        stopReconciler();
         await app.close();
         await disconnectDb();
         logger.info('shutdown complete');

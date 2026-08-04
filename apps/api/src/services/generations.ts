@@ -9,6 +9,7 @@ import type { FilterQuery, HydratedDocument } from 'mongoose';
 import { Types } from 'mongoose';
 import type { AuthUser } from '../auth/plugin.js';
 import { type GenerationDoc, GenerationModel } from '../db/models/generation.js';
+import { StoryboardModel } from '../db/models/storyboard.js';
 import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
@@ -119,6 +120,38 @@ export async function createGeneration(
   }
 }
 
+/**
+ * Copies a finished clip into the storyboard segment that asked for it.
+ *
+ * Every route that can advance a generation — the event stream, the explicit refresh, the
+ * background reconciler — ends up here, so a storyboard is never left holding a segment
+ * whose generation quietly completed somewhere else. It only ever writes to the segment
+ * still pointing at this generation: a re-generated segment has moved on, and overwriting
+ * it would resurrect a clip the user already replaced.
+ */
+async function publishToStoryboard(doc: GenerationDocument): Promise<void> {
+  const { storyboardId, segmentIndex } = doc;
+  if (!storyboardId || segmentIndex === undefined || doc.status !== 'completed') return;
+  if (!doc.resultVideoUrl) return;
+
+  await StoryboardModel.updateOne(
+    { _id: storyboardId, [`segments.${segmentIndex}.generationId`]: doc._id },
+    {
+      $set: {
+        [`segments.${segmentIndex}.videoUrl`]: doc.resultVideoUrl,
+        [`segments.${segmentIndex}.durationSeconds`]: doc.duration,
+      },
+    },
+  )
+    .exec()
+    .catch((error: unknown) => {
+      logger.warn(
+        { err: error, generationId: doc._id.toString() },
+        'could not publish the finished clip to its storyboard segment',
+      );
+    });
+}
+
 export async function syncGeneration(doc: GenerationDocument): Promise<GenerationDocument> {
   if (isTerminalStatus(doc.status)) return doc;
 
@@ -157,6 +190,7 @@ export async function syncGeneration(doc: GenerationDocument): Promise<Generatio
     }
 
     await doc.save();
+    await publishToStoryboard(doc);
     return doc;
   } catch (error) {
     // 'unavailable' means Vertex was briefly unreachable, so the record stays on

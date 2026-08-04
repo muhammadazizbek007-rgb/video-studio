@@ -32,7 +32,10 @@ COPY . .
 RUN pnpm install --frozen-lockfile --offline --prod --filter '@video-studio/api...'
 
 FROM ${NODE_IMAGE} AS runtime
-RUN apk add --no-cache tini
+# ffmpeg concatenates finished storyboard segments into a single MP4. Without it the API
+# answers 'unavailable' for server-side export and the browser stitches instead, so the
+# feature degrades rather than breaks — but the server path is the good one.
+RUN apk add --no-cache tini ffmpeg
 RUN addgroup -g 1001 -S app && adduser -u 1001 -S -G app app
 
 ENV NODE_ENV=production

@@ -110,6 +110,13 @@ export function StudioPage() {
     if (fromUrl) setSelectedId(fromUrl);
   }, [searchParams]);
 
+  // Cinema Studio's Image mode hands its prompt over in the URL, so it is present on the
+  // very first render here rather than arriving after a timer.
+  const handedOverPrompt = searchParams.get('prompt');
+  useEffect(() => {
+    if (handedOverPrompt) setPrompt(handedOverPrompt);
+  }, [handedOverPrompt]);
+
   const selected = generations.find((generation) => generation.id === selectedId) ?? null;
   const active = generations.find((generation) => generation.id === activeId) ?? null;
   const busy = createGeneration.isPending;

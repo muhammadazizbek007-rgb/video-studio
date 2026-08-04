@@ -1,4 +1,10 @@
-import { Clapperboard, LayoutDashboard, LogOut, Settings as SettingsIcon } from 'lucide-react';
+import {
+  Clapperboard,
+  Film,
+  LayoutDashboard,
+  LogOut,
+  Settings as SettingsIcon,
+} from 'lucide-react';
 import type { ComponentType } from 'react';
 import { NavLink } from 'react-router-dom';
 import { IconButton, Select, ThemeToggle } from '@/components/ui';
@@ -23,6 +29,7 @@ interface Destination {
 const DESTINATIONS: readonly Destination[] = [
   { to: '/dashboard', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
   { to: '/studio', labelKey: 'nav.studio', Icon: Clapperboard },
+  { to: '/cinema', labelKey: 'nav.cinema', Icon: Film },
   { to: '/settings', labelKey: 'nav.settings', Icon: SettingsIcon },
 ];
 

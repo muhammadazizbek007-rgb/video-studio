@@ -21,6 +21,11 @@ export interface Env {
   fakeVertex: boolean;
   mcpEnabled: boolean;
   corsOrigins: string[];
+  /** Generations a single account may start per minute, across the studio and storyboards. */
+  generationRateLimitPerMinute: number;
+  reconcilerEnabled: boolean;
+  reconcilerIntervalMs: number;
+  ffmpegPath: string;
 }
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
@@ -87,6 +92,12 @@ const rawSchema = z.object({
   FAKE_VERTEX: booleanish,
   MCP_ENABLED: booleanish,
   CORS_ORIGINS: z.string().optional(),
+  // A twelve-segment storyboard is twelve starts in quick succession, so the studio's old
+  // hard-coded ten per minute is a limit real use hits rather than an abuse ceiling.
+  GENERATION_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(1000).default(40),
+  RECONCILER_ENABLED: booleanish,
+  RECONCILER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(600_000).default(30_000),
+  FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
 });
 
 type ServiceAccount = NonNullable<Env['googleServiceAccount']>;
@@ -206,6 +217,11 @@ function buildEnv(source: NodeJS.ProcessEnv): Env {
     mcpEnabled: toBoolean(raw.MCP_ENABLED, true),
     // Falling back to the web origin keeps a single-origin deployment working unconfigured.
     corsOrigins: corsOrigins.length > 0 ? corsOrigins : [data.WEB_APP_URL],
+    generationRateLimitPerMinute: data.GENERATION_RATE_LIMIT_PER_MINUTE,
+    // Off under test: a sweep firing inside a test run would race its fixtures.
+    reconcilerEnabled: toBoolean(raw.RECONCILER_ENABLED, data.NODE_ENV !== 'test'),
+    reconcilerIntervalMs: data.RECONCILER_INTERVAL_MS,
+    ffmpegPath: data.FFMPEG_PATH,
   };
 }
 

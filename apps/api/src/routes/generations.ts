@@ -9,6 +9,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuthUser } from '../auth/plugin.js';
 import { toGenerationDto } from '../db/mappers.js';
+import { getEnv } from '../env.js';
 import { isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import {
@@ -31,8 +32,10 @@ function userRateLimitKey(request: FastifyRequest): string {
 }
 
 export const generationRoutes: FastifyPluginAsyncZod = async (fastify) => {
+  // Shared with the storyboard route so one account cannot get two independent budgets,
+  // and configurable because a storyboard legitimately starts a dozen in a row.
   const createLimiter = fastify.rateLimit({
-    max: 10,
+    max: getEnv().generationRateLimitPerMinute,
     timeWindow: '1 minute',
     keyGenerator: userRateLimitKey,
   });

@@ -31,6 +31,8 @@ import { z } from 'zod';
 import type { AuthUser } from '../auth/plugin.js';
 import { toElementDto } from '../db/mappers.js';
 import { ElementModel } from '../db/models/element.js';
+import { GenerationModel } from '../db/models/generation.js';
+import { getEnv } from '../env.js';
 import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import type { GenerationDocument } from '../services/generations.js';
@@ -123,6 +125,21 @@ function jsonResult(payload: unknown): CallToolResult {
 }
 
 /**
+ * Turns a stored media path into something an off-site caller can actually fetch.
+ *
+ * `MEDIA_PUBLIC_BASE_URL` defaults to `/media`, which is right for the web app — it shares
+ * an origin with the API — and useless for Claude, which is not on this host. A relative
+ * `video_url` cannot be opened by the user, and a relative `image_url` handed back as a
+ * reference frame fails inside Veo, where it is fetched rather than resolved.
+ */
+function publicMediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = getEnv().apiPublicUrl.replace(/\/+$/, '');
+  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`;
+}
+
+/**
  * Tool faults come back as MCP tool errors carrying the REST error envelope, so an MCP
  * client and a browser client read the exact same code and message for the same fault.
  */
@@ -165,7 +182,7 @@ function summariseGeneration(doc: GenerationDocument): Record<string, unknown> {
     prompt: doc.prompt.slice(0, PROMPT_PREVIEW_CHARS),
     aspect_ratio: doc.aspectRatio,
     duration_seconds: doc.duration,
-    video_url: doc.resultVideoUrl ?? null,
+    video_url: publicMediaUrl(doc.resultVideoUrl),
     error_message: doc.errorMessage ?? null,
     created_at: doc.createdAt.toISOString(),
   };
@@ -182,6 +199,30 @@ interface StartVideoParams {
   referenceImageUrls: string[];
 }
 
+/**
+ * Applies the same per-minute generation budget the REST route enforces.
+ *
+ * REST gets it from a Fastify rate limiter on `POST /api/generations`; MCP calls the
+ * service directly, so without this a leaked connector key could start Veo jobs — and
+ * spend — without any ceiling at all. Counting rows is cheap here: `{userId, createdAt}`
+ * is already indexed for the history list.
+ */
+async function assertGenerationBudget(user: AuthUser): Promise<void> {
+  const max = getEnv().generationRateLimitPerMinute;
+  const since = new Date(Date.now() - 60_000);
+  const started = await GenerationModel.countDocuments({
+    userId: ownerId(user),
+    createdAt: { $gte: since },
+  }).exec();
+
+  if (started >= max) {
+    throw new ApiError(
+      'rate-limited',
+      `Too many generations started in the last minute (limit ${max}). Wait a moment and try again.`,
+    );
+  }
+}
+
 /** The single door into video generation for every MCP tool — REST uses the same one. */
 async function startVideo(user: AuthUser, params: StartVideoParams): Promise<GenerationDocument> {
   const modelId = params.model ?? DEFAULT_VIDEO_MODEL_ID;
@@ -193,8 +234,16 @@ async function startVideo(user: AuthUser, params: StartVideoParams): Promise<Gen
     );
   }
 
+  // Veo *fetches* a reference frame rather than resolving it against this host, so a
+  // relative `/media/...` path — which is exactly what our own image tools hand back —
+  // would fail inside the provider. Absolutising at the single door means every caller,
+  // including a Claude that pasted a URL from an earlier tool result, is safe.
+  const referenceImageUrls = params.referenceImageUrls
+    .map((url) => publicMediaUrl(url))
+    .filter((url): url is string => url !== null);
+
   const mode: VideoGenerationMode =
-    params.referenceImageUrls.length > 0 ? 'image_to_video' : 'text_to_video';
+    referenceImageUrls.length > 0 ? 'image_to_video' : 'text_to_video';
 
   const input: CreateGenerationInput = {
     prompt: params.prompt,
@@ -207,10 +256,18 @@ async function startVideo(user: AuthUser, params: StartVideoParams): Promise<Gen
     duration: resolveDuration(spec, params.duration ?? spec.defaultDuration),
     stylePreset: params.stylePreset ?? 'Cinematic',
     cameraMotion: params.cameraMotion ?? 'Static',
-    referenceImageUrls: params.referenceImageUrls,
+    referenceImageUrls,
   };
 
+  await assertGenerationBudget(user);
   return await createGeneration(user, input);
+}
+
+/** Element images are handed to Claude as reference URLs, so they must be fetchable too. */
+function toMcpElement(doc: Parameters<typeof toElementDto>[0]): Record<string, unknown> {
+  const dto = toElementDto(doc);
+  const imageUrl = publicMediaUrl(dto.imageUrl);
+  return imageUrl ? { ...dto, imageUrl } : dto;
 }
 
 function videoModelCatalogue(): Record<string, unknown>[] {
@@ -394,7 +451,7 @@ function registerVideoTools(server: McpServer, user: AuthUser): void {
 
         return {
           ...summariseGeneration(doc),
-          reference_images: [reference.imageUrl],
+          reference_images: [publicMediaUrl(reference.imageUrl)],
           message: `Video generation started from an Imagen reference frame. Poll get_video_status("${doc._id.toString()}").`,
         };
       }),
@@ -454,7 +511,7 @@ function registerImageTools(server: McpServer, user: AuthUser): void {
             status: 'completed',
             model: modelId,
             aspect_ratio: aspectRatio,
-            image_url: image.imageUrl,
+            image_url: publicMediaUrl(image.imageUrl),
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Image generation failed.';
@@ -491,7 +548,7 @@ function registerImageTools(server: McpServer, user: AuthUser): void {
           model: job.modelId,
           aspect_ratio: job.aspectRatio,
           prompt: job.prompt.slice(0, PROMPT_PREVIEW_CHARS),
-          image_url: job.imageUrl,
+          image_url: publicMediaUrl(job.imageUrl),
           error_message: job.errorMessage,
           created_at: job.createdAt.toISOString(),
         };
@@ -550,7 +607,7 @@ function registerCatalogueTools(server: McpServer, user: AuthUser): void {
           .exec();
 
         return {
-          elements: elements.map(toElementDto),
+          elements: elements.map(toMcpElement),
           ...presetCatalogue(),
           aspect_ratios: [...ASPECT_RATIOS],
           durations_seconds: [...VIDEO_DURATIONS],
@@ -576,7 +633,7 @@ function registerCatalogueTools(server: McpServer, user: AuthUser): void {
           .exec();
 
         return {
-          characters: characters.map(toElementDto),
+          characters: characters.map(toMcpElement),
           how_to_use: [
             'Generate a character portrait with generate_image.',
             'Pass the returned URL as reference_image_url to generate_video so the video opens on that face.',

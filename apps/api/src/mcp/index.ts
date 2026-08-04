@@ -1,7 +1,8 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { AuthUser } from '../auth/plugin.js';
 import { ApiError } from '../errors.js';
-import { resolveMcpUser } from './auth.js';
+import { resolveMcpUser, resolveMcpUserByToken } from './auth.js';
 import { createMcpServer } from './server.js';
 
 const JSON_RPC_INTERNAL_ERROR = -32603;
@@ -35,11 +36,8 @@ export const mcpRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  fastify.post('/', async (request, reply) => {
-    // Resolved before the transport exists so an auth failure still travels the normal
-    // Fastify error path and lands in the shared error envelope.
-    const user = await resolveMcpUser(request);
-
+  /** One transport per request — stateless mode, so nothing is shared between calls. */
+  async function serve(request: FastifyRequest, reply: FastifyReply, user: AuthUser) {
     const server = createMcpServer(user);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
@@ -72,10 +70,30 @@ export const mcpRoutes: FastifyPluginAsync = async (fastify) => {
         reply.raw.end();
       }
     }
+  }
+
+  // Header-authenticated endpoint, for clients that can set one (CLIs, scripts, the SDK).
+  fastify.post('/', async (request, reply) => {
+    // Resolved before the transport exists so an auth failure still travels the normal
+    // Fastify error path and lands in the shared error envelope.
+    await serve(request, reply, await resolveMcpUser(request));
+  });
+
+  /**
+   * Key-in-URL endpoint, for Claude's custom-connector dialog.
+   *
+   * That dialog accepts a URL and nothing else — there is no header field — so the key has
+   * to be part of the address. The whole URL is therefore a bearer secret; `logger.ts`
+   * scrubs this path before anything is written to the journal.
+   */
+  fastify.post<{ Params: { token: string } }>('/k/:token', async (request, reply) => {
+    await serve(request, reply, await resolveMcpUserByToken(request.params.token));
   });
 
   // Stateless mode has no stream to resume, so the server-initiated SSE channel is refused.
-  fastify.get('/', async (_request, reply) =>
-    reply.code(405).header('allow', 'POST').send(METHOD_NOT_ALLOWED),
-  );
+  const methodNotAllowed = async (_request: FastifyRequest, reply: FastifyReply) =>
+    await reply.code(405).header('allow', 'POST').send(METHOD_NOT_ALLOWED);
+
+  fastify.get('/', methodNotAllowed);
+  fastify.get('/k/:token', methodNotAllowed);
 };

@@ -20,9 +20,11 @@ import { logger } from './logger.js';
 import { elementRoutes } from './routes/elements.js';
 import { generationRoutes } from './routes/generations.js';
 import { healthRoutes } from './routes/health.js';
+import { mcpKeyRoutes } from './routes/mcpKeys.js';
 import { mediaRoutes } from './routes/media.js';
 import { modelsRoutes } from './routes/models.js';
 import { promptRoutes } from './routes/prompt.js';
+import { storyboardRoutes } from './routes/storyboards.js';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const GLOBAL_RATE_LIMIT = 300;
@@ -180,9 +182,13 @@ export async function buildApp(): Promise<AppInstance> {
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(modelsRoutes, { prefix: '/api' });
   await app.register(generationRoutes, { prefix: '/api/generations' });
+  await app.register(storyboardRoutes, { prefix: '/api/storyboards' });
   await app.register(elementRoutes, { prefix: '/api/elements' });
   await app.register(mediaRoutes, { prefix: '/api/media' });
   await app.register(promptRoutes, { prefix: '/api/prompt' });
+  // Registered even when MCP is switched off, so the settings page can say so rather than
+  // failing an unexplained request.
+  await app.register(mcpKeyRoutes, { prefix: '/api/mcp' });
 
   if (env.mcpEnabled) {
     // Imported on demand so a deployment with MCP off never loads the SDK.

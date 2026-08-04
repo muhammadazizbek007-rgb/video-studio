@@ -224,7 +224,10 @@ describe('mcp bearer tokens', () => {
   });
 
   it('resolves a freshly issued token to its owner and forgets a revoked one', async () => {
-    const token = await authModule.issueMcpToken(alice.id);
+    // Issuing returns the secret plus display metadata; only the hash is stored.
+    const { token, hint } = await authModule.issueMcpToken(alice.id);
+    expect(token.endsWith(hint)).toBe(true);
+
     const resolved = await authModule.resolveMcpUser({
       headers: { authorization: `Bearer ${token}` },
     });

@@ -1,6 +1,14 @@
-import type { ElementDto, ElementRef, GenerationDto, UserDto } from '@video-studio/shared';
+import type {
+  ElementDto,
+  ElementRef,
+  GenerationDto,
+  StoryboardDto,
+  StoryboardSegmentDto,
+  UserDto,
+} from '@video-studio/shared';
 import type { ElementDoc } from './models/element.js';
 import type { GenerationDoc } from './models/generation.js';
+import type { StoryboardDoc } from './models/storyboard.js';
 import type { UserDoc } from './models/user.js';
 
 function iso(value: Date | undefined): string {
@@ -63,6 +71,57 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   assignOptional(dto, 'resultVideoUrl', doc.resultVideoUrl);
   assignOptional(dto, 'errorMessage', doc.errorMessage);
   assignOptional(dto, 'lastFrameImageUrl', doc.lastFrameImageUrl);
+  return dto;
+}
+
+/**
+ * Segment status is mirrored from the linked generation rather than duplicated in the
+ * storyboard document. Two copies of the same truth drift; one read of the generations
+ * involved keeps the client's picture consistent with history.
+ */
+export type SegmentGenerationSnapshot = Pick<
+  GenerationDoc,
+  'status' | 'errorMessage' | 'resultVideoUrl'
+>;
+
+export function toStoryboardDto(
+  doc: StoryboardDoc,
+  generations: ReadonlyMap<string, SegmentGenerationSnapshot> = new Map(),
+): StoryboardDto {
+  const segments: StoryboardSegmentDto[] = (doc.segments ?? []).map((segment, index) => {
+    const generationId = segment.generationId?.toString();
+    const linked = generationId ? generations.get(generationId) : undefined;
+
+    const dto: StoryboardSegmentDto = { index };
+    assignOptional(dto, 'firstFrameUrl', segment.firstFrameUrl);
+    assignOptional(dto, 'lastFrameUrl', segment.lastFrameUrl);
+    // The generation's own URL wins: it is written the moment the clip is stored, so a
+    // storyboard read never lags a completed generation by one poll.
+    assignOptional(dto, 'videoUrl', linked?.resultVideoUrl ?? segment.videoUrl);
+    assignOptional(dto, 'durationSeconds', segment.durationSeconds);
+    assignOptional(dto, 'generationId', generationId);
+    assignOptional(dto, 'status', linked?.status);
+    assignOptional(dto, 'errorMessage', linked?.errorMessage);
+    return dto;
+  });
+
+  const dto: StoryboardDto = {
+    id: doc._id.toString(),
+    userId: doc.userId.toString(),
+    title: doc.title,
+    prompt: doc.prompt,
+    modelId: doc.modelId,
+    aspectRatio: doc.aspectRatio,
+    duration: doc.duration,
+    stylePreset: doc.stylePreset,
+    cameraMotion: doc.cameraMotion,
+    segments,
+    exportStatus: doc.exportStatus,
+    createdAt: iso(doc.createdAt),
+    updatedAt: iso(doc.updatedAt),
+  };
+  assignOptional(dto, 'exportUrl', doc.exportUrl);
+  assignOptional(dto, 'exportError', doc.exportError);
   return dto;
 }
 
