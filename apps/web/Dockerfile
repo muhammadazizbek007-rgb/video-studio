@@ -16,7 +16,11 @@ FROM ${NODE_IMAGE} AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+# See apps/api/Dockerfile: Node 22's bundled corepack fails signature verification
+# against npm's rotated keys, so it is upgraded before it is used.
+RUN npm install --global corepack@latest \
+  && corepack enable \
+  && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
 FROM base AS fetched

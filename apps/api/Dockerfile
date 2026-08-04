@@ -12,7 +12,13 @@ FROM ${NODE_IMAGE} AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+# corepack is upgraded before it is used: the copy bundled with Node 22 verifies package
+# signatures against a key set that npm has since rotated, so `corepack prepare` fails
+# with "Cannot find matching keyid" seconds into the build. Upgrading fixes the key set
+# rather than switching the check off.
+RUN npm install --global corepack@latest \
+  && corepack enable \
+  && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
 # Dependency tarballs are fetched from the lockfile alone, so editing source code
