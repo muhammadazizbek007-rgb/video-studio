@@ -184,6 +184,14 @@ else
   [ -n "$AMI_ID" ] && [ "$AMI_ID" != 'None' ] || die "cannot resolve the Ubuntu 24.04 AMI from ${AMI_PARAM}"
   log "Launching ${INSTANCE_TYPE} from ${AMI_ID}"
 
+  # Burstable-only argument: run-instances rejects it outright for an m5/c5/etc,
+  # which INSTANCE_TYPE is documented as being allowed to select. `standard` rather
+  # than `unlimited` so a sustained CPU pin throttles instead of quietly billing.
+  CREDIT_ARGS=()
+  case "$INSTANCE_TYPE" in
+    t2.*|t3.*|t3a.*|t4g.*) CREDIT_ARGS=(--credit-specification 'CpuCredits=standard') ;;
+  esac
+
   INSTANCE_ID="$(aws_ ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type "$INSTANCE_TYPE" \
@@ -192,7 +200,7 @@ else
     --security-group-ids "$SG_ID" \
     --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${VOLUME_SIZE},\"VolumeType\":\"gp3\",\"Encrypted\":true,\"DeleteOnTermination\":true}}]" \
     --metadata-options 'HttpTokens=required,HttpEndpoint=enabled,HttpPutResponseHopLimit=1' \
-    --credit-specification 'CpuCredits=standard' \
+    ${CREDIT_ARGS[@]+"${CREDIT_ARGS[@]}"} \
     --tag-specifications \
       "ResourceType=instance,Tags=[{Key=Name,Value=${NAME}}]" \
       "ResourceType=volume,Tags=[{Key=Name,Value=${NAME}-root}]" \
