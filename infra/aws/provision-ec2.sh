@@ -56,6 +56,14 @@ fi
 
 aws_() { "$AWS_BIN" --region "$AWS_REGION" --output text "$@"; }
 
+# On Git Bash the CLI is a native Windows binary and cannot resolve an MSYS path
+# like /c/Users/... — a fileb:// argument built from $HOME would silently fail to
+# open. cygpath exists only on MSYS/Cygwin, so its absence is the Linux/macOS case
+# where the path is already native.
+to_native_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
+
 # `|| true` on every lookup: the CLI exits non-zero for a missing resource, which
 # under `set -e` would abort a run that is merely discovering there is work to do.
 lookup() { aws_ "$@" 2>/dev/null || true; }
@@ -91,7 +99,7 @@ else
   log "Importing ${ADMIN_KEY_NAME} into EC2"
   aws_ ec2 import-key-pair \
     --key-name "$ADMIN_KEY_NAME" \
-    --public-key-material "fileb://${ADMIN_KEY_FILE}.pub" \
+    --public-key-material "fileb://$(to_native_path "${ADMIN_KEY_FILE}.pub")" \
     --query 'KeyName' >/dev/null
 fi
 
@@ -140,20 +148,24 @@ fi
 
 # authorize-security-group-ingress fails with InvalidPermission.Duplicate on a rule
 # that is already there, which is exactly the no-op we want on a re-run.
+#
+# The description carries no spaces on purpose: --ip-permissions takes CLI shorthand,
+# where an unquoted space ends the value and a shell-quoted one is passed through
+# literally, quotes included.
 authorize() {
   local port="$1" cidr="$2" note="$3"
   if aws_ ec2 authorize-security-group-ingress \
       --group-id "$SG_ID" \
-      --ip-permissions "IpProtocol=tcp,FromPort=${port},ToPort=${port},IpRanges=[{CidrIp=${cidr},Description='${note}'}]" \
+      --ip-permissions "IpProtocol=tcp,FromPort=${port},ToPort=${port},IpRanges=[{CidrIp=${cidr},Description=${note}}]" \
       >/dev/null 2>&1; then
     log "  opened ${port}/tcp to ${cidr}"
   else
     log "  ${port}/tcp from ${cidr} already allowed"
   fi
 }
-authorize 22  "$ADMIN_CIDR" 'admin ssh'
-authorize 80  '0.0.0.0/0'   'http + acme http-01'
-authorize 443 '0.0.0.0/0'   'https'
+authorize 22  "$ADMIN_CIDR" admin-ssh
+authorize 80  '0.0.0.0/0'   http-and-acme
+authorize 443 '0.0.0.0/0'   https
 
 # ---------------------------------------------------------------------------
 # 4. The instance.

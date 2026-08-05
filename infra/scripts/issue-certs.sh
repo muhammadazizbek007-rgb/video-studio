@@ -167,7 +167,7 @@ cat <<SUMMARY
 ------------------------------------------------------------------------------
 $(for d in $DOMAINS; do
     if [ -d "/etc/letsencrypt/live/${d}" ]; then
-      printf ' %-28s Let'"'"'s Encrypt, expires %s\n' "$d" \
+      printf ' %-28s ACME, expires %s\n' "$d" \
         "$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${d}/fullchain.pem" 2>/dev/null | cut -d= -f2)"
     else
       printf ' %-28s SELF-SIGNED placeholder — browsers will warn\n' "$d"
