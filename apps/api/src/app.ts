@@ -142,12 +142,52 @@ export async function buildApp(): Promise<AppInstance> {
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
-  // A wildcard origin is incompatible with cookie auth, so the allow-list is explicit.
+  /**
+   * Two policies, chosen per request.
+   *
+   * The browser app authenticates with cookies, and a wildcard origin is incompatible
+   * with credentials, so it gets an explicit allow-list.
+   *
+   * MCP is different: it is called by other people's clients — claude.ai among them —
+   * and authenticates by the key in the URL, never by a cookie. Without a permissive
+   * policy there, a browser-based MCP client cannot read our responses at all. That
+   * includes the 404s on `/.well-known/oauth-*`, which are how a client learns this
+   * server needs no OAuth; blocked by CORS they look like network failures instead, and
+   * the client falls through to an authorization flow that cannot succeed.
+   */
+  const browserOrigins = env.corsOrigins.length > 0 ? env.corsOrigins : [env.webAppUrl];
+
   await app.register(cors, {
-    origin: env.corsOrigins.length > 0 ? env.corsOrigins : [env.webAppUrl],
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    maxAge: 600,
+    delegator: (request, callback) => {
+      const path = request.url.split('?')[0] ?? '';
+      if (path.startsWith('/mcp') || path.startsWith('/.well-known/')) {
+        callback(null, {
+          origin: '*',
+          credentials: false,
+          methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+          // Streamable HTTP carries its own headers; a client cannot send them unless
+          // the preflight says they are allowed.
+          allowedHeaders: [
+            'content-type',
+            'accept',
+            'authorization',
+            'mcp-protocol-version',
+            'mcp-session-id',
+            'last-event-id',
+          ],
+          exposedHeaders: ['mcp-session-id', 'mcp-protocol-version'],
+          maxAge: 600,
+        });
+        return;
+      }
+
+      callback(null, {
+        origin: browserOrigins,
+        credentials: true,
+        methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+        maxAge: 600,
+      });
+    },
   });
 
   await app.register(cookie);

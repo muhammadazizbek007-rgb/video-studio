@@ -96,4 +96,10 @@ export const mcpRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/', methodNotAllowed);
   fastify.get('/k/:token', methodNotAllowed);
+
+  // Clients send DELETE to end a session. There are no sessions in stateless mode, so
+  // there is nothing to release — but answering 405 tells the client that plainly,
+  // where a 404 reads as "this endpoint does not exist".
+  fastify.delete('/', methodNotAllowed);
+  fastify.delete('/k/:token', methodNotAllowed);
 };
