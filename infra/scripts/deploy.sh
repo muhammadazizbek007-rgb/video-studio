@@ -78,6 +78,21 @@ write_tag() {
     printf 'GHCR_OWNER=%s\nIMAGE_TAG=%s\n' "$GHCR_OWNER" "$1" > "$ENV_FILE" )
 }
 
+# nginx/ is a bind mount, so a config change synced by CI is on disk the moment the
+# rsync finishes — but `compose up -d` leaves an otherwise-unchanged nginx container
+# running, and nginx only re-reads its files on a reload. Without this, an edited
+# vhost appears to deploy successfully and changes nothing.
+reload_nginx() {
+  compose ps --status running --services 2>/dev/null | grep -qx nginx || return 0
+  if ! compose exec -T nginx nginx -t >/dev/null 2>&1; then
+    warn 'the synced nginx config is INVALID — the running config is left in place:'
+    compose exec -T nginx nginx -t >&2 || true
+    return 1
+  fi
+  compose exec -T nginx nginx -s reload >/dev/null 2>&1 || return 1
+  log 'nginx reloaded'
+}
+
 wait_ready() {
   local attempt
   for attempt in $(seq 1 "$HEALTH_RETRIES"); do
@@ -114,6 +129,9 @@ fi
 
 compose up -d --remove-orphans
 
+RELOAD_FAILED=0
+reload_nginx || RELOAD_FAILED=1
+
 if wait_ready; then
   if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$TAG" ]; then
     printf '%s\n' "$PREVIOUS_TAG" > "$STATE_DIR/previous_tag"
@@ -123,6 +141,15 @@ if wait_ready; then
   docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
   log "Deployed ${TAG}"
   compose ps
+  # The images are live and healthy — this is not worth rolling back — but a routing
+  # change that silently did not apply must not be reported as a clean deploy.
+  if [ "$RELOAD_FAILED" -eq 1 ]; then
+    warn "${TAG} is live, but nginx is still running the PREVIOUS config"
+    # 3, not 1: the caller must be able to tell this apart from a failed rollout.
+    # Reverting the image tag would not fix a broken vhost — only the config needs
+    # attention — so CI treats 3 as "fail the job, do NOT roll back".
+    exit 3
+  fi
   exit 0
 fi
 

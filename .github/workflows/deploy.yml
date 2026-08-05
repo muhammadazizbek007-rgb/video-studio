@@ -7,18 +7,26 @@
 #                              that already-published tag — this is how you roll forward
 #                              or roll back to a known image.
 #
+# The target is a single Linux host reached over SSH — an EC2 instance in eu-north-1
+# today (see infra/aws/), a plain VPS before that. Nothing here is AWS-specific: the
+# provisioning scripts differ, the deploy does not.
+#
 # Required repository secrets
-#   VPS_HOST              hostname or IP of the VPS
+#   VPS_HOST              hostname or IP of the host (the Elastic IP on EC2)
 #   VPS_SSH_KEY           PRIVATE key whose public half is in the deploy user's
 #                         authorized_keys (see infra/scripts/provision-vps.sh)
 #   VPS_SSH_KNOWN_HOSTS   output of `ssh-keyscan <host>` — the host key is VERIFIED,
 #                         StrictHostKeyChecking is never disabled
 #
 # Required repository variables
-#   VPS_USER              deploy user on the VPS                  (default: deploy)
-#   DEPLOY_PATH           deployment root on the VPS              (default: /opt/video-studio)
-#   VITE_API_URL          API origin baked into the SPA bundle. EMPTY for the standard
-#                         same-origin deployment (nginx serves the SPA and proxies /api).
+#   VPS_USER              deploy user on the host                 (default: deploy)
+#   DEPLOY_PATH           deployment root on the host             (default: /opt/video-studio)
+#   VITE_API_URL          API origin baked into the SPA bundle, and the one setting
+#                         that differs between the two supported topologies:
+#                           split domains  -> https://studio-api.haywan.uz
+#                           single origin  -> empty (nginx serves the SPA and /api)
+#                         It is compiled into the bundle, so changing it needs a
+#                         rebuild — a redeploy of an existing tag will NOT pick it up.
 #
 # GHCR access uses the built-in GITHUB_TOKEN — no PAT is stored anywhere. The token is
 # handed to the VPS over the ssh *stdin*, so it never appears in a command line, in a
@@ -219,19 +227,31 @@ jobs:
       # deploy.sh performs the readiness gate itself and exits non-zero when the new tag
       # never answers /api/health/ready, which fails this step and the workflow.
       # GHCR_TOKEN arrives on stdin, so it is never visible in the remote process list.
+      # deploy.sh performs the readiness gate itself. Exit 3 is its "the images are
+      # live and healthy, but nginx would not reload the synced config" signal —
+      # reverting the image tag cannot fix a broken vhost, so that case fails the
+      # job without rolling back.
       - name: Deploy
         id: deploy
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          set +e
           printf '%s' "$GHCR_TOKEN" | ssh -i "$HOME/.ssh/deploy_key" $SSH_OPTS \
             "${VPS_USER}@${VPS_HOST}" \
             "GHCR_TOKEN=\"\$(cat)\" APP_ROOT='${DEPLOY_PATH}' '${DEPLOY_PATH}/current/scripts/deploy.sh' '${TAG}'"
+          code=$?
+          set -e
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 3 ]; then
+            echo "::error::${TAG} is serving, but nginx kept its previous config — fix infra/nginx and re-run"
+          fi
+          exit "$code"
 
       - name: Roll back
-        if: failure() && steps.deploy.outcome == 'failure'
+        if: failure() && steps.deploy.outcome == 'failure' && steps.deploy.outputs.code != '3'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
