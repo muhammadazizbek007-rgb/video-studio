@@ -33,9 +33,18 @@ RUN pnpm install --frozen-lockfile --offline --filter '@video-studio/api...'
 RUN pnpm --filter @video-studio/shared build && pnpm --filter @video-studio/api build
 
 # A second, independent install produces the runtime node_modules with no dev deps.
+#
+# confirmModulesPurge=false is load-bearing. `pnpm fetch` leaves a node_modules/.modules.yaml
+# recording a dev-mode install; adding --prod contradicts it, so pnpm wants to wipe the
+# directory and asks "The modules directories will be removed and reinstalled from
+# scratch. Proceed?". BuildKit gives it no TTY, so it takes the default and exits
+# WITHOUT installing — the stage then "succeeds" in under a second and the COPY steps
+# below fail with "/app/apps/api/node_modules: not found". The build stage above has no
+# --prod, which is why it is unaffected and the failure looks unrelated to this line.
 FROM fetched AS prod-deps
 COPY . .
-RUN pnpm install --frozen-lockfile --offline --prod --filter '@video-studio/api...'
+RUN pnpm install --frozen-lockfile --offline --prod --filter '@video-studio/api...' \
+      --config.confirmModulesPurge=false
 
 FROM ${NODE_IMAGE} AS runtime
 # ffmpeg concatenates finished storyboard segments into a single MP4. Without it the API
