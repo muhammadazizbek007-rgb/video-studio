@@ -77,8 +77,29 @@ Writes three files into `~/.ssh` and prints the Elastic IP:
 Both key pairs are generated locally. AWS only ever receives the admin **public**
 key, and the deploy key never touches AWS at all.
 
-SSH is restricted to the address this machine had at provisioning time. From
-somewhere else later:
+### Why port 22 is open to the world
+
+Two rules are created for SSH: your address, and `0.0.0.0/0`. The second one is not
+an oversight. The deploy workflow connects from a GitHub-hosted runner whose address
+cannot be predicted — Actions publishes hundreds of CIDRs that rotate, and a security
+group holds 60 rules — so CI can only deploy if 22 is reachable from anywhere.
+`provision-vps.sh` has always assumed this; it opens 22 in ufw unconditionally.
+
+The port is protected by sshd rather than by the security group:
+
+| | |
+| --- | --- |
+| `PasswordAuthentication no` | keys only, no password to guess |
+| `MaxAuthTries 3` | three attempts per connection |
+| fail2ban | 4 failures → 1 hour ban |
+| `PermitRootLogin prohibit-password` | no root password login |
+
+If you would rather keep 22 closed, run `CI_SSH=0 ./infra/aws/provision-ec2.sh`.
+Deploys must then run from an allowed address, or from a self-hosted runner on the
+instance — which is the strictly safer design, since the runner dials out and needs
+no inbound access at all.
+
+To add another admin address later:
 
 ```bash
 aws ec2 authorize-security-group-ingress --region eu-north-1 \

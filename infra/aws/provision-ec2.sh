@@ -172,6 +172,22 @@ authorize 22  "$ADMIN_CIDR" admin-ssh
 authorize 80  '0.0.0.0/0'   http-and-acme
 authorize 443 '0.0.0.0/0'   https
 
+# The deploy workflow reaches this box over SSH from a GitHub-hosted runner, whose
+# address is not knowable in advance: Actions publishes hundreds of CIDRs that rotate,
+# and a security group takes 60 rules. So 22 has to be reachable from anywhere for CI
+# to deploy at all — which is what provision-vps.sh already assumes, since it opens
+# 22 in ufw unconditionally.
+#
+# What actually protects the port is sshd, not the security group: passwords are
+# disabled, only keys are accepted, MaxAuthTries is 3 and fail2ban bans for an hour
+# after 4 failures. Set CI_SSH=0 to keep 22 restricted to ADMIN_CIDR — deploys then
+# have to run from an allowed address, or from a self-hosted runner on the instance.
+if [ "${CI_SSH:-1}" = '1' ]; then
+  authorize 22 '0.0.0.0/0' ssh-for-github-actions-deploy
+else
+  warn 'CI_SSH=0 — GitHub Actions will NOT be able to deploy to this host'
+fi
+
 # ---------------------------------------------------------------------------
 # 4. The instance.
 # ---------------------------------------------------------------------------
