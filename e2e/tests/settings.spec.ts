@@ -54,7 +54,7 @@ test.describe('settings', () => {
     await page.goto('/settings');
 
     await expect(page.getByText('API reachable')).toBeVisible();
-    const veo = 'Google Veo 3.1 Fast · veo-3.1-fast-generate-preview';
+    const veo = 'Google Veo 3.1 Fast · veo-3.1-fast-generate-001';
     const imagen = 'Google Imagen 4 · imagen-4.0-generate-001';
     await expect(page.getByText(veo)).toBeVisible();
     await expect(page.getByText(imagen)).toBeVisible();

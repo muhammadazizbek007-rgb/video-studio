@@ -60,16 +60,21 @@ gcloud config set project "$PROJECT_ID" >/dev/null
 step "Billing"
 # Vertex AI refuses to serve a project without billing, and the failure surfaces much
 # later as an opaque 403 on the first generation — so it is checked up front.
-if gcloud beta billing projects describe "$PROJECT_ID" \
+#
+# `gcloud billing`, not `gcloud beta billing`: the beta surface needs a component that
+# is installed on first use, and that install writes to stderr. With 2>/dev/null the
+# check then reads an empty string and reports "billing NOT enabled" for a project that
+# has it — sending you to fix the one thing that was never broken.
+if gcloud billing projects describe "$PROJECT_ID" \
      --format='value(billingEnabled)' 2>/dev/null | grep -qi true; then
   note "already enabled"
 elif [ -n "$BILLING_ACCOUNT" ]; then
-  gcloud beta billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT"
+  gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT"
   note "linked ${BILLING_ACCOUNT}"
 else
   note "NOT enabled, and no --billing-account was given."
   note "Available accounts:"
-  gcloud beta billing accounts list --format='table(name,displayName,open)' 2>/dev/null || \
+  gcloud billing accounts list --format='table(name,displayName,open)' 2>/dev/null || \
     note "  (none visible to ${ACCOUNT})"
   die "re-run with --billing-account <ID>, or enable billing in the Console"
 fi
@@ -107,6 +112,17 @@ if [ -f "$KEY_OUT" ]; then
   note "${KEY_OUT} already exists — leaving it alone (delete it to mint a new key)"
 else
   umask 077
+  # A service account created moments ago is not yet visible to the keys API, and the
+  # failure is a flat NOT_FOUND naming the account that was just created successfully —
+  # which reads like the create silently failed rather than like replication lag.
+  # Wait for it to resolve before minting the key.
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
+      break
+    fi
+    note "waiting for ${SA_EMAIL} to propagate (${attempt}/10)"
+    sleep 5
+  done
   gcloud iam service-accounts keys create "$KEY_OUT" --iam-account="$SA_EMAIL"
   chmod 600 "$KEY_OUT"
   note "written to ${KEY_OUT} (mode 600)"

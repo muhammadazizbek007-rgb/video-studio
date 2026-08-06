@@ -115,8 +115,8 @@ describe('startVeoOperation', () => {
 
   it('resolves the vertex model id from the registry', async () => {
     const started = await startVeoOperation(startInput({ modelId: 'veo-3.1-fast' }));
-    expect(started.vertexModel).toBe('veo-3.1-fast-generate-preview');
-    expect(started.operationName).toContain('veo-3.1-fast-generate-preview');
+    expect(started.vertexModel).toBe('veo-3.1-fast-generate-001');
+    expect(started.operationName).toContain('veo-3.1-fast-generate-001');
   });
 });
 

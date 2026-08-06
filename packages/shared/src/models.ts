@@ -18,7 +18,7 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
   'veo-3.1': {
     id: 'veo-3.1',
     name: 'Google Veo 3.1',
-    vertexModel: 'veo-3.1-generate-preview',
+    vertexModel: 'veo-3.1-generate-001',
     description: 'Максимальное качество, звук и диалоги, 1080p, первый и последний кадр',
     supportedDurations: [4, 6, 8],
     defaultDuration: 8,
@@ -31,7 +31,7 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
   'veo-3.1-fast': {
     id: 'veo-3.1-fast',
     name: 'Google Veo 3.1 Fast',
-    vertexModel: 'veo-3.1-fast-generate-preview',
+    vertexModel: 'veo-3.1-fast-generate-001',
     description: 'Veo 3.1 быстрее, звук на месте — оптимальный выбор',
     supportedDurations: [4, 6, 8],
     defaultDuration: 8,
