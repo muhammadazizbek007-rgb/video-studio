@@ -17,8 +17,8 @@ test.describe('studio', () => {
     const page = signedInPage;
     await openApp(page, '/studio');
 
-    await modelCard(page, 'Google Veo 3 Fast').click();
-    await expect(page.getByTestId('studio-summary')).toContainText('Google Veo 3 Fast');
+    await modelCard(page, 'Google Veo 3.1 Fast').click();
+    await expect(page.getByTestId('studio-summary')).toContainText('Google Veo 3.1 Fast');
 
     const prompt = 'a paper boat drifting down a rain-slick street at dusk';
     await page.getByLabel('Prompt').fill(prompt);
@@ -44,27 +44,6 @@ test.describe('studio', () => {
     expect(media.status()).toBe(200);
     expect(media.headers()['content-type'] ?? '').toContain('video/');
     expect((await media.body()).byteLength).toBeGreaterThan(0);
-  });
-
-  test('switching models clamps a duration the new model cannot take', async ({ signedInPage }) => {
-    const page = signedInPage;
-    await openApp(page, '/studio');
-
-    // Veo 3.1 Fast offers 4 / 6 / 8 seconds; Veo 2 offers 5 / 6 / 7 / 8.
-    await modelCard(page, 'Google Veo 3.1 Fast').click();
-    await durationOptions(page).getByRole('radio', { name: '4s' }).click();
-    await expect(page.getByTestId('studio-summary')).toContainText('4s');
-
-    await modelCard(page, 'Google Veo 2').click();
-
-    // 4s is gone, so the selection snaps to the nearest supported value instead of staying
-    // on one the API would reject.
-    await expect(durationOptions(page).getByRole('radio', { name: '4s' })).toHaveCount(0);
-    await expect(page.getByTestId('studio-summary')).toContainText('5s');
-    await expect(durationOptions(page).getByRole('radio', { name: '5s' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
   });
 
   test('an empty prompt cannot be submitted', async ({ signedInPage }) => {

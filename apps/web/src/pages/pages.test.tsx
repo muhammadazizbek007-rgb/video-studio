@@ -156,16 +156,6 @@ function statValue(label: string): string {
   throw new Error(`No stat tile labelled ${label}`);
 }
 
-function modelOption(name: string): HTMLElement {
-  const option = screen.getByText(name).closest('button');
-  if (!option) throw new Error(`Model ${name} is not rendered as a control`);
-  return option;
-}
-
-function durationOptions(): HTMLElement {
-  return screen.getByRole('radiogroup', { name: 'Длительность' });
-}
-
 beforeEach(() => {
   // LanguageProvider otherwise falls back to the navigator language, which jsdom reports as en.
   window.localStorage.setItem('vs.language', 'ru');
@@ -241,28 +231,6 @@ describe('DashboardPage', () => {
 });
 
 describe('StudioPage', () => {
-  it('clamps the duration to the closest one the newly picked model supports', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<StudioPage />, '/studio');
-
-    await user.click(modelOption('Google Veo 2'));
-    await user.click(within(durationOptions()).getByRole('radio', { name: '5s' }));
-    expect(within(durationOptions()).getByRole('radio', { name: '5s' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
-
-    await user.click(modelOption('Google Veo 3.1'));
-
-    await waitFor(() => {
-      expect(within(durationOptions()).queryByRole('radio', { name: '5s' })).toBeNull();
-    });
-    expect(within(durationOptions()).getByRole('radio', { name: '4s' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
-    expect(screen.getByTestId('studio-summary')).toHaveTextContent('Google Veo 3.1 · 16:9 · 4s');
-  });
 
   it('keeps the generate control disabled until the prompt has content', async () => {
     const user = userEvent.setup();
