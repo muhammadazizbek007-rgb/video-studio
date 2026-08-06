@@ -23,8 +23,8 @@
 #   DEPLOY_PATH           deployment root on the host             (default: /opt/video-studio)
 #   VITE_API_URL          API origin baked into the SPA bundle, and the one setting
 #                         that differs between the two supported topologies:
-#                           split domains  -> https://studio-api.haywan.uz
 #                           single origin  -> empty (nginx serves the SPA and /api)
+#                           split domains  -> the API origin, e.g. https://api.example.com
 #                         It is compiled into the bundle, so changing it needs a
 #                         rebuild — a redeploy of an existing tag will NOT pick it up.
 #

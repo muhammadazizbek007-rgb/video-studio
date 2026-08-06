@@ -17,10 +17,10 @@ directory.
    │  │ t3.medium, Ubuntu 24.04                │   │
    │  │ 50 GiB gp3, encrypted, IMDSv2 required │   │
    │  │                                        │   │
-   │  │  nginx ─┬─ studio.haywan.uz     -> web │   │
-   │  │         │                    /media -> api│ │
-   │  │         └─ studio-api.haywan.uz -> api │   │
-   │  │                                  └─> mongo│ │
+   │  │  nginx ── gadgetpro.uz                 │   │
+   │  │             /       -> web             │   │
+   │  │             /api    -> api ──> mongo   │   │
+   │  │             /media  -> api             │   │
    │  └────────────────────────────────────────┘   │
    └──────────────────────────────────────────────┘
                       ▲
@@ -135,15 +135,15 @@ security group also blocks it. Only nginx publishes ports here (80/443).
 Two A records, both at the Elastic IP:
 
 ```
-studio.haywan.uz.       A   <elastic-ip>
-studio-api.haywan.uz.   A   <elastic-ip>
+gadgetpro.uz.       A   <elastic-ip>
+www.gadgetpro.uz.   A   <elastic-ip>
 ```
 
 Wait for propagation before issuing certificates — a failed http-01 burns one of the
 five duplicate-certificate attempts Let's Encrypt allows per week.
 
 ```bash
-dig +short studio.haywan.uz studio-api.haywan.uz
+dig +short gadgetpro.uz www.gadgetpro.uz
 ```
 
 ## 5. Environment
@@ -158,23 +158,26 @@ chmod 600 /opt/video-studio/shared/env/api.env
 vim /opt/video-studio/shared/env/api.env
 ```
 
-The three values that are specific to the split-domain layout:
+The values specific to the single-origin layout:
 
 ```ini
-WEB_APP_URL=https://studio.haywan.uz
-API_PUBLIC_URL=https://studio-api.haywan.uz
-CORS_ORIGINS=https://studio.haywan.uz
+WEB_APP_URL=https://gadgetpro.uz
+API_PUBLIC_URL=https://gadgetpro.uz
+CORS_ORIGINS=
 ```
 
-`CORS_ORIGINS` is not optional here. The two hostnames are same-**site** — they share
-the registrable domain `haywan.uz`, which is why the `SameSite=Lax` session cookies
-are sent at all — but they are not same-**origin**, so the API must echo the SPA's
-origin explicitly. A wildcard is invalid on a credentialed request.
+`CORS_ORIGINS` is deliberately **empty**. The SPA and the API share one origin, so no
+request is ever cross-origin and there is nothing for CORS to allow. The `SameSite=Lax`
+session cookies need no special handling either.
+
+If you later split the API onto its own hostname, all three change: `API_PUBLIC_URL`
+points at the API host, `CORS_ORIGINS` must name the SPA origin explicitly (a wildcard
+is invalid on a credentialed request), and `VITE_API_URL` must be rebuilt.
 
 The Google OAuth client's authorised redirect URI must be exactly:
 
 ```
-https://studio-api.haywan.uz/api/auth/google/callback
+https://gadgetpro.uz/api/auth/google/callback
 ```
 
 Everything else is documented inline in `infra/env/api.env.example`. Non-obvious:
@@ -196,7 +199,7 @@ Everything else is documented inline in `infra/env/api.env.example`. Non-obvious
 | secret | `VPS_SSH_KNOWN_HOSTS` | `~/.ssh/video-studio-known_hosts` |
 | variable | `VPS_USER` | `deploy` |
 | variable | `DEPLOY_PATH` | `/opt/video-studio` |
-| variable | `VITE_API_URL` | `https://studio-api.haywan.uz` |
+| variable | `VITE_API_URL` | empty — same origin |
 
 `VITE_API_URL` is compiled into the SPA bundle at image build time. Changing it
 requires a **new build** — redeploying an existing tag will not pick it up.
@@ -237,18 +240,18 @@ sudo STAGING=1 /opt/video-studio/current/scripts/issue-certs.sh you@example.com
 ## 8. Verifying
 
 ```bash
-curl -sI https://studio.haywan.uz/                       # 200 + security headers
-curl -s  https://studio-api.haywan.uz/api/health/ready   # ok
-curl -N  https://studio-api.haywan.uz/api/generations/<id>/events   # must stream
+curl -sI https://gadgetpro.uz/                       # 200 + security headers
+curl -s  https://gadgetpro.uz/api/health/ready       # ok
+curl -N  https://gadgetpro.uz/api/generations/<id>/events   # must stream
 
 cd /opt/video-studio/current
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f api
 ```
 
-If the SPA loads but every request 401s or is blocked in the console, the cause is
-almost always one of: `CORS_ORIGINS` missing the SPA origin, `VITE_API_URL` baked as
-empty, or a CSP `connect-src` that does not name `https://studio-api.haywan.uz`.
+If the SPA loads but every request 401s or is blocked in the console, check
+`VITE_API_URL` first: on this single-origin setup it must be **empty**, and a stale
+non-empty value baked into the bundle sends the browser cross-origin for no reason.
 
 ## 9. Operations
 

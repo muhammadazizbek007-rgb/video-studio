@@ -313,8 +313,8 @@ cat <<SUMMARY
 
  2. Point DNS at ${PUBLIC_IP}:
 
-      studio.haywan.uz.       A   ${PUBLIC_IP}
-      studio-api.haywan.uz.   A   ${PUBLIC_IP}
+      gadgetpro.uz.       A   ${PUBLIC_IP}
+      www.gadgetpro.uz.   A   ${PUBLIC_IP}
 
  3. Fill in /opt/video-studio/shared/env/api.env on the box, set the GitHub
     secrets printed by bootstrap-ec2.sh, then push to main.

@@ -122,7 +122,7 @@ cat <<SUMMARY
  Variables:
    VPS_USER              ${DEPLOY_USER}
    DEPLOY_PATH           ${APP_ROOT}
-   VITE_API_URL          https://studio-api.haywan.uz
+   VITE_API_URL          (empty — the SPA and the API share one origin)
 
  With the gh CLI, from the repo root:
 
@@ -131,7 +131,7 @@ cat <<SUMMARY
    gh secret set VPS_SSH_KNOWN_HOSTS < '${KNOWN_HOSTS_FILE}'
    gh variable set VPS_USER --body '${DEPLOY_USER}'
    gh variable set DEPLOY_PATH --body '${APP_ROOT}'
-   gh variable set VITE_API_URL --body 'https://studio-api.haywan.uz'
+   gh variable set VITE_API_URL --body ''
 
  STILL TO DO ON THE BOX (as ${DEPLOY_USER}@${HOST})
 
@@ -143,10 +143,10 @@ cat <<SUMMARY
         chmod 600 ${APP_ROOT}/shared/env/api.env
         vim ${APP_ROOT}/shared/env/api.env
 
-      For the split-domain setup:
-        WEB_APP_URL=https://studio.haywan.uz
-        API_PUBLIC_URL=https://studio-api.haywan.uz
-        CORS_ORIGINS=https://studio.haywan.uz
+      For the single-origin setup:
+        WEB_APP_URL=https://gadgetpro.uz
+        API_PUBLIC_URL=https://gadgetpro.uz
+        CORS_ORIGINS=          # empty: every request is same-origin
 
    3. Point DNS at ${HOST}, then issue both certificates:
         sudo ${APP_ROOT}/current/scripts/issue-certs.sh you@example.com

@@ -18,7 +18,7 @@
 #   sudo DOMAINS='a.example.com b.example.com' ./issue-certs.sh you@example.com
 #
 # Environment:
-#   DOMAINS    space-separated hostnames  (default: studio.haywan.uz studio-api.haywan.uz)
+#   DOMAINS    space-separated hostnames  (default: gadgetpro.uz www.gadgetpro.uz)
 #   APP_ROOT   deployment root            (default: /opt/video-studio)
 #   STAGING    1 to use the Let's Encrypt staging CA (untrusted certs, no rate limit)
 #
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-/opt/video-studio}"
-DOMAINS="${DOMAINS:-studio.haywan.uz studio-api.haywan.uz}"
+DOMAINS="${DOMAINS:-gadgetpro.uz www.gadgetpro.uz}"
 CERT_ROOT="${APP_ROOT}/shared/certs"
 WEBROOT="${APP_ROOT}/shared/certbot/www"
 COMPOSE_FILE="${APP_ROOT}/current/docker-compose.prod.yml"
