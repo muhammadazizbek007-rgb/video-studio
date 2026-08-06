@@ -76,6 +76,14 @@ else
   tar -C "${REPO_ROOT}" -czf - infra | ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${HOST}" 'tar -xzf - -C ~ --strip-components=0'
 fi
 
+# Belt and braces on top of .gitattributes: a zip download, an editor that rewrote a
+# file, or a clone made before those rules existed still carries CRLF — and a CR at
+# the end of a shebang makes the kernel look for an interpreter named "bash\r".
+# Cheap to run, and it turns a cryptic failure into a non-event.
+log 'Normalising line endings on the uploaded tree'
+ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${HOST}" \
+  "find ~/infra -type f \\( -name '*.sh' -o -name '*.conf' -o -name '*.yml' -o -name '*.env*' \\) -exec sed -i 's/\\r\$//' {} +"
+
 log 'Running provision-vps.sh (docker, deploy user, ufw, fail2ban, layout)'
 DEPLOY_PUBLIC_KEY="$(cat "${DEPLOY_KEY_FILE}.pub")"
 ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${HOST}" \
