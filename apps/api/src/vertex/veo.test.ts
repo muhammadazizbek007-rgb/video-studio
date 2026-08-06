@@ -89,10 +89,10 @@ describe('startVeoOperation', () => {
     const started = await startVeoOperation(startInput({ modelId: 'veo-3.1', duration: 5 }));
     expect(readFakeVeoOperation(started.operationName)?.duration).toBe(4);
 
-    const older = await startVeoOperation(
-      startInput({ modelId: 'veo-2.0', duration: 4, generationId: 'gen-2' }),
+    const up = await startVeoOperation(
+      startInput({ modelId: 'veo-3.1', duration: 7, generationId: 'gen-2' }),
     );
-    expect(readFakeVeoOperation(older.operationName)?.duration).toBe(5);
+    expect(readFakeVeoOperation(up.operationName)?.duration).toBe(6);
   });
 
   it('keeps a duration the model already supports', async () => {

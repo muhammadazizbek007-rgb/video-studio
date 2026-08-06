@@ -41,46 +41,30 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsLastFrame: true,
     maxResolution: '1080p',
   },
-  'veo-3.0': {
-    id: 'veo-3.0',
-    name: 'Google Veo 3',
-    vertexModel: 'veo-3.0-generate-001',
-    description: 'Veo 3 со звуком, 1080p',
+  'veo-3.1-lite': {
+    id: 'veo-3.1-lite',
+    name: 'Google Veo 3.1 Lite',
+    vertexModel: 'veo-3.1-lite-generate-001',
+    description: 'Самый дешёвый Veo 3.1, 720p — для черновиков и проб',
     supportedDurations: [4, 6, 8],
     defaultDuration: 8,
     aspectRatios: ['16:9', '9:16'],
     supportsImageToVideo: true,
     supportsAudio: true,
-    supportsLastFrame: false,
-    maxResolution: '1080p',
-  },
-  'veo-3.0-fast': {
-    id: 'veo-3.0-fast',
-    name: 'Google Veo 3 Fast',
-    vertexModel: 'veo-3.0-fast-generate-001',
-    description: 'Быстрый Veo 3 со звуком',
-    supportedDurations: [4, 6, 8],
-    defaultDuration: 8,
-    aspectRatios: ['16:9', '9:16'],
-    supportsImageToVideo: true,
-    supportsAudio: true,
-    supportsLastFrame: false,
-    maxResolution: '1080p',
-  },
-  'veo-2.0': {
-    id: 'veo-2.0',
-    name: 'Google Veo 2',
-    vertexModel: 'veo-2.0-generate-001',
-    description: 'Veo 2, 720p, без звуковой дорожки',
-    supportedDurations: [5, 6, 7, 8],
-    defaultDuration: 8,
-    aspectRatios: ['16:9', '9:16'],
-    supportsImageToVideo: true,
-    supportsAudio: false,
+    // Conservatively false: the lite tier was verified to generate, but its
+    // last-frame support was not, and claiming a capability the model lacks
+    // fails at generation time rather than at selection time.
     supportsLastFrame: false,
     maxResolution: '720p',
   },
 };
+
+// Veo 2.0, 3.0 and 3.0-fast were removed on 2026-08-07, not deprecated on a whim:
+// Vertex answers NOT_FOUND for all three in this project, in every region tried
+// (us-central1, us-east4, global), while the 3.1 family generates normally. Verified
+// twice — through the REST API and by generating a clip from the Cloud console under
+// owner credentials. Offering a model the backend cannot reach turns a working picker
+// into a menu of dead options, so they are gone rather than left as decoration.
 
 export const VIDEO_MODEL_LIST: readonly VeoModelSpec[] = Object.values(VEO_MODELS);
 
@@ -142,6 +126,8 @@ export const IMAGE_MODELS: Readonly<Record<string, ImageModelSpec>> = {
 
 export const IMAGE_MODEL_LIST: readonly ImageModelSpec[] = Object.values(IMAGE_MODELS);
 
+export const IMAGE_MODEL_IDS: readonly string[] = Object.keys(IMAGE_MODELS);
+
 export const DEFAULT_IMAGE_MODEL_ID = 'imagen-4';
 
 export const STYLE_PRESETS = [
@@ -174,6 +160,18 @@ export function requireVeoModel(id: string): VeoModelSpec {
   const spec = VEO_MODELS[id];
   if (!spec) {
     throw new Error(`Unknown Veo model: ${id}. Available: ${VIDEO_MODEL_IDS.join(', ')}.`);
+  }
+  return spec;
+}
+
+export function getImageModel(id: string): ImageModelSpec | undefined {
+  return IMAGE_MODELS[id];
+}
+
+export function requireImageModel(id: string): ImageModelSpec {
+  const spec = IMAGE_MODELS[id];
+  if (!spec) {
+    throw new Error(`Unknown image model: ${id}. Available: ${IMAGE_MODEL_IDS.join(', ')}.`);
   }
   return spec;
 }

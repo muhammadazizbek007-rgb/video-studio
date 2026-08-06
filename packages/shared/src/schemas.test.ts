@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildHandle, extractMentions } from './helpers.js';
-import { requireVeoModel, resolveAspectRatio, resolveDuration } from './models.js';
+import {
+  requireVeoModel,
+  resolveAspectRatio,
+  resolveDuration,
+  type VeoModelSpec,
+} from './models.js';
 import { createGenerationSchema, generationDtoSchema } from './schemas.js';
 
 describe('resolveDuration', () => {
@@ -13,11 +18,23 @@ describe('resolveDuration', () => {
     expect(resolveDuration(veo31, 5)).toBe(4);
     expect(resolveDuration(veo31, 7)).toBe(6);
     expect(resolveDuration(veo31, 99)).toBe(8);
-    expect(resolveDuration(requireVeoModel('veo-2.0'), 4)).toBe(5);
+  });
+
+  it('snaps upward when the request is below every duration on offer', () => {
+    // The spec is built here rather than taken from the catalogue. This is a
+    // property of resolveDuration, but the only model with a floor above 4 was
+    // Veo 2 — so pinning the case to it made the test fail the day Veo 2 was
+    // withdrawn, for reasons having nothing to do with the behaviour under test.
+    const highFloor: VeoModelSpec = {
+      ...requireVeoModel('veo-3.1'),
+      supportedDurations: [5, 6, 7, 8],
+      defaultDuration: 8,
+    };
+    expect(resolveDuration(highFloor, 4)).toBe(5);
   });
 
   it('falls back to the model default for non-finite input', () => {
-    expect(resolveDuration(requireVeoModel('veo-2.0'), Number.NaN)).toBe(8);
+    expect(resolveDuration(requireVeoModel('veo-3.1'), Number.NaN)).toBe(8);
   });
 });
 
@@ -35,7 +52,7 @@ describe('resolveAspectRatio', () => {
 
 describe('requireVeoModel', () => {
   it('resolves the exact Vertex model id', () => {
-    expect(requireVeoModel('veo-2.0').vertexModel).toBe('veo-2.0-generate-001');
+    expect(requireVeoModel('veo-3.1-lite').vertexModel).toBe('veo-3.1-lite-generate-001');
   });
 
   it('throws for an unknown model', () => {

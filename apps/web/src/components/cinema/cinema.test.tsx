@@ -5,7 +5,7 @@ import { requireVeoModel } from '@video-studio/shared';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { CinemaBottomBar } from '@/components/cinema/CinemaBottomBar';
+import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { LanguageProvider } from '@/i18n/LanguageContext';
@@ -176,20 +176,29 @@ describe('CinemaPlayer', () => {
 });
 
 /** Drives the bar with real state so model changes flow back through the props. */
-function BottomBarHarness({ onDuration }: { onDuration?: (value: number) => void }) {
-  const [modelId, setModelId] = useState('veo-2.0');
+function BottomBarHarness({
+  onDuration,
+  mode = 'Video',
+}: {
+  onDuration?: (value: number) => void;
+  mode?: CinemaInputMode;
+}) {
+  const [modelId, setModelId] = useState('veo-3.1');
   const model: VeoModelSpec = requireVeoModel(modelId);
-  const [duration, setDuration] = useState<VeoModelSpec['defaultDuration']>(5);
+  const [duration, setDuration] = useState<VeoModelSpec['defaultDuration']>(8);
+  const [imageModelId, setImageModelId] = useState('imagen-4');
 
   return (
     <CinemaBottomBar
-      mode="Video"
+      mode={mode}
       onModeChange={() => undefined}
       prompt="a shot"
       onPromptChange={() => undefined}
       model={model}
       modelId={modelId}
       onModelChange={setModelId}
+      imageModelId={imageModelId}
+      onImageModelChange={setImageModelId}
       aspect="16:9"
       onAspectChange={() => undefined}
       duration={duration}
@@ -226,10 +235,25 @@ describe('CinemaBottomBar', () => {
     const user = userEvent.setup();
     renderUi(<BottomBarHarness />);
 
-    // Veo 2 supports 5, 6, 7 and 8 seconds — 7 is the one no Veo 3 model offers.
-    await user.click(screen.getByRole('button', { name: /^5s$/ }));
+    // Veo 3.1 offers 4, 6 and 8 seconds — 5 and 7 are the ones it does not.
+    await user.click(screen.getByRole('button', { name: /^8s$/ }));
     const panel = screen.getByRole('listbox', { name: /^duration$/i });
-    expect(within(panel).getByRole('option', { name: /^7s$/ })).toBeInTheDocument();
-    expect(within(panel).queryByRole('option', { name: /^4s$/ })).not.toBeInTheDocument();
+    expect(within(panel).getByRole('option', { name: /^4s$/ })).toBeInTheDocument();
+    expect(within(panel).queryByRole('option', { name: /^5s$/ })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('option', { name: /^7s$/ })).not.toBeInTheDocument();
+  });
+
+  it('lists only image models in Image mode, and drops the duration chip', async () => {
+    const user = userEvent.setup();
+    renderUi(<BottomBarHarness mode="Image" />);
+
+    expect(screen.queryByRole('button', { name: /^5s$/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /google imagen 4/i }));
+    const panel = screen.getByRole('listbox', { name: /choose a model/i });
+    expect(
+      within(panel).getByRole('option', { name: /google imagen 4 ultra/i }),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByRole('option', { name: /veo/i })).not.toBeInTheDocument();
   });
 });
