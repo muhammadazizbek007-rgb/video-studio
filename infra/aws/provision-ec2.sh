@@ -77,7 +77,12 @@ log "Region ${AWS_REGION}, instance ${INSTANCE_TYPE}, root volume ${VOLUME_SIZE}
 # ---------------------------------------------------------------------------
 # 1. SSH key pairs — generated here, so the private halves never leave this box.
 # ---------------------------------------------------------------------------
-install -d -m 700 "$KEY_DIR"
+# `install -d -m 700` also chmods a directory that already exists, and that fails on
+# an NTFS path through MSYS, where POSIX mode bits are not settable. Creating and
+# permissioning separately keeps the mode strict on Linux without aborting on Git Bash
+# — ssh itself is what enforces key permissions, and it accepts Windows ACLs here.
+mkdir -p "$KEY_DIR"
+chmod 700 "$KEY_DIR" 2>/dev/null || true
 
 for pair in "admin:${ADMIN_KEY_FILE}" "deploy:${DEPLOY_KEY_FILE}"; do
   role="${pair%%:*}"
