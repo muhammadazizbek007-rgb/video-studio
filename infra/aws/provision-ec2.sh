@@ -180,8 +180,24 @@ INSTANCE_ID="$(lookup ec2 describe-instances \
 if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != 'None' ]; then
   log "Reusing instance ${INSTANCE_ID} (tagged ${NAME})"
 else
+  # Preferred source: Canonical's public SSM parameter. It needs ssm:GetParameter,
+  # which AmazonEC2FullAccess does NOT grant — so a deployer user carrying only that
+  # policy falls through to describe-images, which ec2:Describe* does cover.
   AMI_ID="$(lookup ssm get-parameter --name "$AMI_PARAM" --query 'Parameter.Value')"
-  [ -n "$AMI_ID" ] && [ "$AMI_ID" != 'None' ] || die "cannot resolve the Ubuntu 24.04 AMI from ${AMI_PARAM}"
+  if [ -z "$AMI_ID" ] || [ "$AMI_ID" = 'None' ]; then
+    warn 'SSM lookup failed (missing ssm:GetParameter?) — falling back to describe-images'
+    # 099720109477 is Canonical's account. Filtering by owner-id rather than by a name
+    # alone matters: anyone may publish an image called ubuntu-noble-*, and picking the
+    # newest match by name would be trusting a stranger's AMI.
+    AMI_ID="$(lookup ec2 describe-images \
+      --owners 099720109477 \
+      --filters 'Name=name,Values=ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*' \
+                'Name=state,Values=available' \
+                'Name=architecture,Values=x86_64' \
+      --query 'sort_by(Images, &CreationDate)[-1].ImageId')"
+  fi
+  [ -n "$AMI_ID" ] && [ "$AMI_ID" != 'None' ] \
+    || die 'cannot resolve the Ubuntu 24.04 AMI via SSM or describe-images'
   log "Launching ${INSTANCE_TYPE} from ${AMI_ID}"
 
   # Burstable-only argument: run-instances rejects it outright for an m5/c5/etc,
