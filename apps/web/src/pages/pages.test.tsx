@@ -228,10 +228,48 @@ describe('DashboardPage', () => {
     expect(statValue('Ошибки')).toBe('0');
     expect(screen.getAllByRole('button', { name: 'Новое видео' }).length).toBeGreaterThan(1);
   });
+
+  it('renders every loaded generation rather than the first screenful', () => {
+    // Fourteen, because the page used to slice at nine. A fixture of ten would still
+    // pass against the old cap on some renders and prove nothing.
+    const many = Array.from({ length: 14 }, (_, index) =>
+      generationFixture({
+        id: `g${index + 1}`,
+        status: 'completed',
+        prompt: `ролик номер ${index + 1}`,
+      }),
+    );
+    generationsMock = generationsResult(many);
+    renderWithProviders(<DashboardPage />, '/dashboard');
+
+    expect(screen.getByText('ролик номер 1')).toBeInTheDocument();
+    expect(screen.getByText('ролик номер 14')).toBeInTheDocument();
+    expect(statValue('Всего')).toBe('14');
+  });
+
+  it('asks for the next page only when there is one', async () => {
+    const user = userEvent.setup();
+    const loadMore = vi.fn();
+    generationsMock = {
+      ...generationsResult([generationFixture({ id: 'g1', status: 'completed' })]),
+      hasMore: true,
+      loadMore,
+    };
+    renderWithProviders(<DashboardPage />, '/dashboard');
+
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the control once everything is loaded', () => {
+    generationsMock = generationsResult([generationFixture({ id: 'g1', status: 'completed' })]);
+    renderWithProviders(<DashboardPage />, '/dashboard');
+
+    expect(screen.queryByRole('button', { name: 'Показать ещё' })).not.toBeInTheDocument();
+  });
 });
 
 describe('StudioPage', () => {
-
   it('keeps the generate control disabled until the prompt has content', async () => {
     const user = userEvent.setup();
     renderWithProviders(<StudioPage />, '/studio');

@@ -6,8 +6,6 @@ import { GenerationGrid } from '@/components/video/GenerationGrid';
 import { useDeleteGeneration, useGenerations, useUpdateGeneration } from '@/hooks/useGenerations';
 import { useLanguage } from '@/i18n/LanguageContext';
 
-const RECENT_LIMIT = 9;
-
 interface StatTileProps {
   label: string;
   value: number;
@@ -31,7 +29,8 @@ export function DashboardPage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const recentHeadingId = useId();
-  const { generations, isLoading, isError, refetch } = useGenerations();
+  const { generations, isLoading, isError, hasMore, isLoadingMore, loadMore, refetch } =
+    useGenerations();
   const updateGeneration = useUpdateGeneration();
   const deleteGeneration = useDeleteGeneration();
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -79,7 +78,7 @@ export function DashboardPage() {
           {t('dashboard.recent')}
         </h2>
         <GenerationGrid
-          generations={generations.slice(0, RECENT_LIMIT)}
+          generations={generations}
           isLoading={isLoading}
           isError={isError}
           onRetry={() => void refetch()}
@@ -104,6 +103,13 @@ export function DashboardPage() {
             </Button>
           }
         />
+        {hasMore ? (
+          <div className="flex justify-center">
+            <Button type="button" variant="secondary" onClick={loadMore} disabled={isLoadingMore}>
+              {isLoadingMore ? t('dashboard.loadingMore') : t('dashboard.loadMore')}
+            </Button>
+          </div>
+        ) : null}
       </section>
     </div>
   );
