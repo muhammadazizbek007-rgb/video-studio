@@ -81,39 +81,13 @@ export interface ImageModelSpec {
   description: string;
 }
 
+// Every Imagen entry was removed on 2026-08-07 for the same reason as Veo 2 and 3:
+// Vertex answers NOT_FOUND for imagen-4.0-generate-001, imagen-4.0-fast-generate-001,
+// imagen-4.0-ultra-generate-001 and imagen-3.0-generate-002 in us-central1, us-east4,
+// europe-west4 and asia-southeast1 alike. gemini-2.5-flash-image is the only image
+// model this project can still reach, so it is also the default — the previous default
+// pointed at imagen-4, which means image generation failed out of the box.
 export const IMAGE_MODELS: Readonly<Record<string, ImageModelSpec>> = {
-  'imagen-4': {
-    id: 'imagen-4',
-    name: 'Google Imagen 4',
-    vertexModel: 'imagen-4.0-generate-001',
-    kind: 'imagen',
-    supportsEditing: false,
-    description: 'Фотореализм и корректный текст на изображении',
-  },
-  'imagen-4-fast': {
-    id: 'imagen-4-fast',
-    name: 'Google Imagen 4 Fast',
-    vertexModel: 'imagen-4.0-fast-generate-001',
-    kind: 'imagen',
-    supportsEditing: false,
-    description: 'Быстрее, качество чуть ниже',
-  },
-  'imagen-4-ultra': {
-    id: 'imagen-4-ultra',
-    name: 'Google Imagen 4 Ultra',
-    vertexModel: 'imagen-4.0-ultra-generate-001',
-    kind: 'imagen',
-    supportsEditing: false,
-    description: 'Максимальное качество Imagen 4',
-  },
-  'imagen-3': {
-    id: 'imagen-3',
-    name: 'Google Imagen 3',
-    vertexModel: 'imagen-3.0-generate-002',
-    kind: 'imagen',
-    supportsEditing: false,
-    description: 'Предыдущее поколение Imagen',
-  },
   'gemini-image': {
     id: 'gemini-image',
     name: 'Google Gemini Image',
@@ -128,7 +102,7 @@ export const IMAGE_MODEL_LIST: readonly ImageModelSpec[] = Object.values(IMAGE_M
 
 export const IMAGE_MODEL_IDS: readonly string[] = Object.keys(IMAGE_MODELS);
 
-export const DEFAULT_IMAGE_MODEL_ID = 'imagen-4';
+export const DEFAULT_IMAGE_MODEL_ID = 'gemini-image';
 
 export const STYLE_PRESETS = [
   'Cinematic',
