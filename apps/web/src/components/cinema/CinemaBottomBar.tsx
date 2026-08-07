@@ -5,7 +5,15 @@ import type {
   VideoDuration,
   VideoStylePreset,
 } from '@video-studio/shared';
-import { CAMERA_MOTIONS, STYLE_PRESETS, VIDEO_MODEL_LIST } from '@video-studio/shared';
+import {
+  CAMERA_MOTIONS,
+  DEFAULT_IMAGE_MODEL_ID,
+  getImageModel,
+  IMAGE_MODEL_LIST,
+  requireImageModel,
+  STYLE_PRESETS,
+  VIDEO_MODEL_LIST,
+} from '@video-studio/shared';
 import {
   Camera,
   Clapperboard,
@@ -39,6 +47,9 @@ export interface CinemaBottomBarProps {
   model: VeoModelSpec;
   modelId: string;
   onModelChange: (id: string) => void;
+  /** Image mode picks from the Imagen/Gemini list instead, kept apart from the Veo one. */
+  imageModelId: string;
+  onImageModelChange: (id: string) => void;
   aspect: VideoAspectRatio;
   onAspectChange: (value: VideoAspectRatio) => void;
   duration: VideoDuration;
@@ -61,6 +72,8 @@ export function CinemaBottomBar({
   model,
   modelId,
   onModelChange,
+  imageModelId,
+  onImageModelChange,
   aspect,
   onAspectChange,
   duration,
@@ -79,6 +92,18 @@ export function CinemaBottomBar({
   const [openChip, setOpenChip] = useState<SettingChip | null>(null);
 
   const toggleChip = (chip: SettingChip) => (open: boolean) => setOpenChip(open ? chip : null);
+
+  // Image mode is served by Imagen/Gemini, not Veo, and has no duration to pick — both the
+  // model list and the chip row follow the mode.
+  const isImage = mode === 'Image';
+  const imageModel = getImageModel(imageModelId) ?? requireImageModel(DEFAULT_IMAGE_MODEL_ID);
+
+  function selectMode(value: CinemaInputMode) {
+    // A panel left open would be listing the other mode's options.
+    setModelOpen(false);
+    setOpenChip(null);
+    onModeChange(value);
+  }
 
   const modes: readonly { value: CinemaInputMode; label: string; Icon: typeof ImageIcon }[] = [
     { value: 'Image', label: t('cinema.modeImage'), Icon: ImageIcon },
@@ -101,7 +126,7 @@ export function CinemaBottomBar({
                 key={value}
                 type="button"
                 aria-pressed={active}
-                onClick={() => onModeChange(value)}
+                onClick={() => selectMode(value)}
                 className={cn(
                   'flex h-10 w-14 flex-col items-center justify-center gap-0.5 rounded-sm bg-surface',
                   'text-[10px] font-semibold transition-[box-shadow,color] duration-[120ms]',
@@ -133,30 +158,55 @@ export function CinemaBottomBar({
           />
 
           <div className="flex flex-wrap items-center gap-2">
-            <ChipDropdown
-              caption={t('cinema.pickModel')}
-              value={modelId}
-              onChange={onModelChange}
-              open={modelOpen}
-              onOpenChange={setModelOpen}
-              panelWidth="w-64"
-              scrollable
-              options={VIDEO_MODEL_LIST.map((spec) => ({
-                value: spec.id,
-                label: spec.name,
-                secondary: `${spec.maxResolution} · ${t('cinema.upTo')} ${Math.max(
-                  ...spec.supportedDurations,
-                )}${t('cinema.secondsShort')}`,
-                badge: spec.supportsAudio ? (
-                  <Badge tone="accent" size="sm" className="h-5 px-2 text-[9px] uppercase">
-                    {t('model.audio')}
-                  </Badge>
-                ) : undefined,
-              }))}
-            >
-              <Clapperboard className="size-3.5" aria-hidden />
-              <span className="max-w-32 truncate">{model.name}</span>
-            </ChipDropdown>
+            {isImage ? (
+              <ChipDropdown
+                caption={t('cinema.pickModel')}
+                value={imageModel.id}
+                onChange={onImageModelChange}
+                open={modelOpen}
+                onOpenChange={setModelOpen}
+                panelWidth="w-64"
+                scrollable
+                options={IMAGE_MODEL_LIST.map((spec) => ({
+                  value: spec.id,
+                  label: spec.name,
+                  secondary: spec.description,
+                  badge: spec.supportsEditing ? (
+                    <Badge tone="accent" size="sm" className="h-5 px-2 text-[9px] uppercase">
+                      {t('model.editing')}
+                    </Badge>
+                  ) : undefined,
+                }))}
+              >
+                <ImageIcon className="size-3.5" aria-hidden />
+                <span className="max-w-32 truncate">{imageModel.name}</span>
+              </ChipDropdown>
+            ) : (
+              <ChipDropdown
+                caption={t('cinema.pickModel')}
+                value={modelId}
+                onChange={onModelChange}
+                open={modelOpen}
+                onOpenChange={setModelOpen}
+                panelWidth="w-64"
+                scrollable
+                options={VIDEO_MODEL_LIST.map((spec) => ({
+                  value: spec.id,
+                  label: spec.name,
+                  secondary: `${spec.maxResolution} · ${t('cinema.upTo')} ${Math.max(
+                    ...spec.supportedDurations,
+                  )}${t('cinema.secondsShort')}`,
+                  badge: spec.supportsAudio ? (
+                    <Badge tone="accent" size="sm" className="h-5 px-2 text-[9px] uppercase">
+                      {t('model.audio')}
+                    </Badge>
+                  ) : undefined,
+                }))}
+              >
+                <Clapperboard className="size-3.5" aria-hidden />
+                <span className="max-w-32 truncate">{model.name}</span>
+              </ChipDropdown>
+            )}
 
             <ChipDropdown
               caption={t('cinema.pickAspect')}
@@ -172,22 +222,25 @@ export function CinemaBottomBar({
               {aspect}
             </ChipDropdown>
 
-            <ChipDropdown
-              caption={t('cinema.pickDuration')}
-              value={duration}
-              onChange={onDurationChange}
-              open={openChip === 'duration'}
-              onOpenChange={toggleChip('duration')}
-              panelWidth="w-32"
-              options={model.supportedDurations.map((value) => ({
-                value,
-                label: `${value}${t('cinema.secondsShort')}`,
-              }))}
-            >
-              <Clock className="size-3.5" aria-hidden />
-              {duration}
-              {t('cinema.secondsShort')}
-            </ChipDropdown>
+            {/* Duration only exists for video — a still has no length to set. */}
+            {isImage ? null : (
+              <ChipDropdown
+                caption={t('cinema.pickDuration')}
+                value={duration}
+                onChange={onDurationChange}
+                open={openChip === 'duration'}
+                onOpenChange={toggleChip('duration')}
+                panelWidth="w-32"
+                options={model.supportedDurations.map((value) => ({
+                  value,
+                  label: `${value}${t('cinema.secondsShort')}`,
+                }))}
+              >
+                <Clock className="size-3.5" aria-hidden />
+                {duration}
+                {t('cinema.secondsShort')}
+              </ChipDropdown>
+            )}
 
             <ChipDropdown
               caption={t('cinema.pickStyle')}
@@ -202,18 +255,21 @@ export function CinemaBottomBar({
               <span className="max-w-24 truncate">{stylePreset}</span>
             </ChipDropdown>
 
-            <ChipDropdown
-              caption={t('cinema.pickCamera')}
-              value={cameraMotion}
-              onChange={onCameraMotionChange}
-              open={openChip === 'camera'}
-              onOpenChange={toggleChip('camera')}
-              panelWidth="w-44"
-              options={CAMERA_MOTIONS.map((value) => ({ value, label: value }))}
-            >
-              <Camera className="size-3.5" aria-hidden />
-              <span className="max-w-24 truncate">{cameraMotion}</span>
-            </ChipDropdown>
+            {/* Camera motion only exists for video — a still frame has no movement to direct. */}
+            {isImage ? null : (
+              <ChipDropdown
+                caption={t('cinema.pickCamera')}
+                value={cameraMotion}
+                onChange={onCameraMotionChange}
+                open={openChip === 'camera'}
+                onOpenChange={toggleChip('camera')}
+                panelWidth="w-44"
+                options={CAMERA_MOTIONS.map((value) => ({ value, label: value }))}
+              >
+                <Camera className="size-3.5" aria-hidden />
+                <span className="max-w-24 truncate">{cameraMotion}</span>
+              </ChipDropdown>
+            )}
 
             <div className="flex items-center gap-1 rounded-sm bg-surface px-1.5 py-1 shadow-neu-inset-sm">
               <button

@@ -20,6 +20,7 @@ import { logger } from './logger.js';
 import { elementRoutes } from './routes/elements.js';
 import { generationRoutes } from './routes/generations.js';
 import { healthRoutes } from './routes/health.js';
+import { imageRoutes } from './routes/images.js';
 import { mcpKeyRoutes } from './routes/mcpKeys.js';
 import { mediaRoutes } from './routes/media.js';
 import { modelsRoutes } from './routes/models.js';
@@ -222,6 +223,7 @@ export async function buildApp(): Promise<AppInstance> {
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(modelsRoutes, { prefix: '/api' });
   await app.register(generationRoutes, { prefix: '/api/generations' });
+  await app.register(imageRoutes, { prefix: '/api/images' });
   await app.register(storyboardRoutes, { prefix: '/api/storyboards' });
   await app.register(elementRoutes, { prefix: '/api/elements' });
   await app.register(mediaRoutes, { prefix: '/api/media' });

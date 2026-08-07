@@ -2,12 +2,14 @@ import {
   apiErrorSchema,
   type CreateElementInput,
   type CreateGenerationInput,
+  type CreateImageGenerationInput,
   type CreateStoryboardInput,
   type EnrichPromptInput,
   elementDtoSchema,
   type GenerateSegmentInput,
   type GenerationDto,
   generationDtoSchema,
+  imageGenerationDtoSchema,
   mcpKeyIssuedDtoSchema,
   mcpKeyStatusDtoSchema,
   type StoryboardDto,
@@ -77,6 +79,10 @@ const modelsResponseSchema = z.object({
 const generationPageSchema = z.object({
   items: z.array(generationDtoSchema),
   nextCursor: z.string().nullable(),
+});
+
+const imageGenerationListSchema = z.object({
+  items: z.array(imageGenerationDtoSchema),
 });
 
 const uploadResponseSchema = z.object({
@@ -279,6 +285,15 @@ export const api = {
         source.removeEventListener('error', handleError);
         source.close();
       };
+    },
+  },
+  images: {
+    list: (limit = 24) => requestJson('/images', imageGenerationListSchema, { query: { limit } }),
+    /** Resolves only once the picture exists: Imagen answers in seconds, not minutes. */
+    create: (input: CreateImageGenerationInput) =>
+      requestJson('/images', imageGenerationDtoSchema, { method: 'POST', body: input }),
+    remove: async (id: string): Promise<void> => {
+      await send(`/images/${id}`, { method: 'DELETE' });
     },
   },
   storyboards: {

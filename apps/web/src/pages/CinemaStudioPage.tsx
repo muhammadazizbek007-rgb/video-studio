@@ -1,10 +1,22 @@
-import type { StoryboardDto, VeoModelSpec } from '@video-studio/shared';
-import { DEFAULT_VIDEO_MODEL_ID, getVeoModel, requireVeoModel } from '@video-studio/shared';
+import type {
+  ImageAspectRatio,
+  ImageGenerationDto,
+  StoryboardDto,
+  VeoModelSpec,
+} from '@video-studio/shared';
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_VIDEO_MODEL_ID,
+  getImageModel,
+  getVeoModel,
+  requireVeoModel,
+} from '@video-studio/shared';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
+import { ImageLibraryModal } from '@/components/cinema/ImageLibraryModal';
+import { ImageResults } from '@/components/cinema/ImageResults';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { IconButton, Spinner, Surface } from '@/components/ui';
 import { useStoryboard, useStoryboardCapabilities } from '@/hooks/useStoryboard';
@@ -13,10 +25,14 @@ import { ApiClientError, api } from '@/lib/api';
 import { downloadBlob, stitchSegments } from '@/lib/stitchSegments';
 
 const MODE_STORAGE_KEY = 'cinemaInputMode';
+/** The board stores only the Veo model, so the image pick lives next to the mode. */
+const IMAGE_MODEL_STORAGE_KEY = 'cinemaImageModel';
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const BROWSER_EXPORT_FILENAME = 'cinema-studio.webm';
 const SERVER_EXPORT_FILENAME = 'cinema-studio.mp4';
 const PROMPT_SAVE_DELAY_MS = 700;
+/** The picker shows more than the gallery does: it is a browse surface, not a feed. */
+const LIBRARY_PAGE_SIZE = 100;
 
 /** Layout offsets from the spec: the player clears the strip, the strip clears the bar. */
 const PLAYER_BOTTOM = 310;
@@ -25,6 +41,12 @@ const STRIP_BOTTOM = 148;
 function readStoredMode(): CinemaInputMode {
   if (typeof window === 'undefined') return 'Image';
   return window.sessionStorage.getItem(MODE_STORAGE_KEY) === 'Video' ? 'Video' : 'Image';
+}
+
+function readStoredImageModel(): string {
+  if (typeof window === 'undefined') return DEFAULT_IMAGE_MODEL_ID;
+  const stored = window.sessionStorage.getItem(IMAGE_MODEL_STORAGE_KEY);
+  return stored && getImageModel(stored) ? stored : DEFAULT_IMAGE_MODEL_ID;
 }
 
 /** Segments are 1-based in the UI and 0-based on the wire. */
@@ -63,18 +85,22 @@ function download(url: string, filename: string): void {
 
 export function CinemaStudioPage() {
   const { t } = useLanguage();
-  const navigate = useNavigate();
 
   const { storyboard, isLoading, isError, isGenerating, actions, reload } = useStoryboard();
   const { serverStitching } = useStoryboardCapabilities();
 
   const [mode, setMode] = useState<CinemaInputMode>(readStoredMode);
+  const [imageModelId, setImageModelId] = useState<string>(readStoredImageModel);
+  const [images, setImages] = useState<ImageGenerationDto[]>([]);
+  const [isImaging, setIsImaging] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [uploading, setUploading] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -86,6 +112,25 @@ export function CinemaStudioPage() {
   useEffect(() => {
     window.sessionStorage.setItem(MODE_STORAGE_KEY, mode);
   }, [mode]);
+
+  useEffect(() => {
+    window.sessionStorage.setItem(IMAGE_MODEL_STORAGE_KEY, imageModelId);
+  }, [imageModelId]);
+
+  // Loaded once rather than per mode switch: the gallery is small and a returning user
+  // expects yesterday's stills to still be on the tab.
+  useEffect(() => {
+    let cancelled = false;
+    void api.images
+      .list()
+      .then((page) => {
+        if (!cancelled) setImages(page.items);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The stored prompt seeds the field once. After that the field is the source of truth,
   // so a save round-trip can never overwrite what is being typed.
@@ -175,9 +220,74 @@ export function CinemaStudioPage() {
     }
   }
 
+  /**
+   * Image mode generates here rather than handing the prompt to the video studio: the
+   * style preset is a real parameter of the request, and a redirect would drop it.
+   */
+  async function generateImage() {
+    if (!storyboard || prompt.trim() === '' || isImaging) return;
+
+    setError('');
+    setNotice('');
+    setIsImaging(true);
+    try {
+      const created = await api.images.create({
+        prompt: prompt.trim(),
+        modelId: imageModelId,
+        aspectRatio: storyboard.aspectRatio as ImageAspectRatio,
+        stylePreset: storyboard.stylePreset,
+      });
+      setImages((current) => [created, ...current]);
+    } catch (imageError) {
+      setError(imageError instanceof Error ? imageError.message : t('cinema.imageFailed'));
+    } finally {
+      setIsImaging(false);
+    }
+  }
+
+  /**
+   * The library lists this account's own stills, so it is the same collection the Image tab
+   * shows — re-read on open rather than cached, because a still generated minutes ago is
+   * exactly the one a user reaches for here.
+   */
+  function openLibrary(label: string) {
+    activeSlotRef.current = parseSlotLabel(label);
+    setError('');
+    setLibraryOpen(true);
+    setLibraryLoading(true);
+    void api.images
+      .list(LIBRARY_PAGE_SIZE)
+      .then((page) => setImages(page.items))
+      .catch(() => setError(t('cinema.libraryLoadFailed')))
+      .finally(() => setLibraryLoading(false));
+  }
+
+  function handleLibraryPick(image: ImageGenerationDto) {
+    const target = activeSlotRef.current;
+    setLibraryOpen(false);
+    if (!target || !image.imageUrl) return;
+
+    // Only the URL travels: the storage key is what authorises a delete, and the picture
+    // belongs to the generation, not to this slot. Clearing the slot must not erase it.
+    const apply = target.slot === 2 ? actions.setLastFrame : actions.setFirstFrame;
+    void apply(target.index, { url: image.imageUrl }).catch(() => {
+      setError(t('cinema.libraryPickFailed'));
+    });
+  }
+
+  function handleDeleteImage(id: string) {
+    const previous = images;
+    setImages((current) => current.filter((image) => image.id !== id));
+    void api.images.remove(id).catch(() => {
+      // Put it back rather than pretend: the picture is still on the server.
+      setImages(previous);
+      setError(t('cinema.imageDeleteFailed'));
+    });
+  }
+
   function handleGenerate() {
     if (mode !== 'Video') {
-      navigate(`/studio?prompt=${encodeURIComponent(prompt.trim())}`);
+      void generateImage();
       return;
     }
     if (!storyboard || prompt.trim() === '') return;
@@ -320,6 +430,7 @@ export function CinemaStudioPage() {
                 activeSlotRef.current = parseSlotLabel(label);
                 imageInputRef.current?.click();
               }}
+              onPickFromLibrary={openLibrary}
               onPickVideo={(id) => {
                 activeSegmentRef.current = Number(id) - 1;
                 videoInputRef.current?.click();
@@ -338,6 +449,12 @@ export function CinemaStudioPage() {
             />
           </div>
         </>
+      ) : images.length > 0 || isImaging ? (
+        // Once there is something to show, the gallery replaces the hero rather than
+        // pushing it down: the stills are what the tab is about from then on.
+        <div className="absolute inset-x-4 top-4 overflow-y-auto" style={{ bottom: STRIP_BOTTOM }}>
+          <ImageResults images={images} generating={isImaging} onDelete={handleDeleteImage} />
+        </div>
       ) : (
         <div className="flex flex-col items-center gap-8 px-6 pb-52 pt-16 text-center lg:pt-24">
           <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -361,7 +478,7 @@ export function CinemaStudioPage() {
           <h1 className="relative max-w-2xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl lg:text-5xl">
             {t('cinema.heroLead')} <span className="text-accent">{t('cinema.heroAccent')}</span>
           </h1>
-          <p className="relative max-w-md text-sm text-text-muted">{t('cinema.heroHandoff')}</p>
+          <p className="relative max-w-md text-sm text-text-muted">{t('cinema.imageHint')}</p>
         </div>
       )}
 
@@ -396,6 +513,8 @@ export function CinemaStudioPage() {
         model={model}
         modelId={storyboard.modelId}
         onModelChange={(modelId) => void updateSettings({ modelId }).catch(() => undefined)}
+        imageModelId={imageModelId}
+        onImageModelChange={setImageModelId}
         aspect={storyboard.aspectRatio}
         onAspectChange={(aspectRatio) =>
           void updateSettings({ aspectRatio }).catch(() => undefined)
@@ -414,8 +533,16 @@ export function CinemaStudioPage() {
         onSamplesChange={(segmentCount) =>
           void updateSettings({ segmentCount }).catch(() => undefined)
         }
-        busy={isGenerating}
+        busy={mode === 'Video' ? isGenerating : isImaging}
         onGenerate={handleGenerate}
+      />
+
+      <ImageLibraryModal
+        open={libraryOpen}
+        images={images}
+        loading={libraryLoading}
+        onSelect={handleLibraryPick}
+        onClose={() => setLibraryOpen(false)}
       />
 
       <input

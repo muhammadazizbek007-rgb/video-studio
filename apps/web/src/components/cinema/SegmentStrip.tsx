@@ -1,8 +1,10 @@
 import { Images, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import type { MouseEvent } from 'react';
+import { useState } from 'react';
 import { Spinner, Surface } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
+import { SlotSourceMenu } from './SlotSourceMenu';
 
 export type SegmentState = 'done' | 'generating' | 'failed' | 'empty';
 
@@ -18,6 +20,8 @@ export interface SegmentStripProps {
   segmentStates: Readonly<Record<string, SegmentState>>;
   uploading: readonly string[];
   onPickImage: (label: string) => void;
+  /** Same slot, but filled from the stills this account already generated. */
+  onPickFromLibrary: (label: string) => void;
   onPickVideo: (segment: string) => void;
   onClearSegment: (segment: string) => void;
   onClearSlot: (label: string) => void;
@@ -59,12 +63,15 @@ export function SegmentStrip({
   segmentStates,
   uploading,
   onPickImage,
+  onPickFromLibrary,
   onPickVideo,
   onClearSegment,
   onClearSlot,
   onRetrySegment,
 }: SegmentStripProps) {
   const { t } = useLanguage();
+  /** The slot whose source menu is open, with the rect the menu is placed against. */
+  const [menu, setMenu] = useState<{ label: string; anchor: DOMRect } | null>(null);
 
   return (
     <Surface
@@ -170,8 +177,14 @@ export function SegmentStrip({
                         onClick={(event) => {
                           // Ctrl/Cmd swaps the picker to video: a ready-made clip can stand
                           // in for a generated segment.
-                          if (event.ctrlKey || event.metaKey) onPickVideo(segment);
-                          else onPickImage(label);
+                          if (event.ctrlKey || event.metaKey) {
+                            onPickVideo(segment);
+                            return;
+                          }
+                          setMenu({
+                            label,
+                            anchor: event.currentTarget.getBoundingClientRect(),
+                          });
                         }}
                         className={cn(
                           'relative size-full overflow-hidden rounded-md bg-surface',
@@ -219,6 +232,22 @@ export function SegmentStrip({
           </div>
         );
       })}
+
+      {menu ? (
+        <SlotSourceMenu
+          anchor={menu.anchor}
+          slot={menu.label}
+          onUpload={() => {
+            onPickImage(menu.label);
+            setMenu(null);
+          }}
+          onLibrary={() => {
+            onPickFromLibrary(menu.label);
+            setMenu(null);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </Surface>
   );
 }

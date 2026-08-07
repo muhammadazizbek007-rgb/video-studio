@@ -55,6 +55,32 @@ export const STYLE_PRESET_PROMPTS: Readonly<Record<string, string>> = Object.fre
 });
 
 /**
+ * The same presets seen through a still-image lens. Reusing the Veo wording would ask
+ * Imagen for things a photograph cannot have — "filmed", "single continuous shot" — and a
+ * model asked for a video look returns a video frame, complete with motion blur.
+ */
+export const IMAGE_STYLE_PRESET_PROMPTS: Readonly<Record<string, string>> = Object.freeze({
+  Cinematic:
+    'Cinematic still frame: shallow depth of field, wide anamorphic framing, rich contrast and filmic colour grading',
+  UGC: 'Authentic user-generated photo: taken on a modern smartphone, slightly imperfect handheld framing, ordinary available light, no professional retouching',
+  'App Promo':
+    'Clean app promotion image: bright even lighting, uncluttered modern setting, crisp sharp focus and confident product-centred composition',
+  'Product Demo':
+    'Product photograph: the product sharply in focus and fully visible, clean neutral background, even studio lighting, nothing competing with it for attention',
+  'Character Story':
+    'Character portrait: close framing on the face and expression, warm cinematic lighting, emotional tone',
+  'Social Ad':
+    'High-energy social media advertisement image: bold saturated colours, punchy contrast, dynamic scroll-stopping composition',
+});
+
+/**
+ * Imagen 4 dropped the negativePrompt parameter, so the guardrails that ride alongside a
+ * Veo request have to travel inside the prompt itself.
+ */
+const IMAGE_QUALITY_SUFFIX =
+  'Sharp, high detail, no watermark, no logo overlay, no captions or burned-in text';
+
+/**
  * Applied to every generation. Veo readily burns in subtitles when the scene has speech,
  * and watermarks or artifacts are never wanted.
  */
@@ -129,6 +155,31 @@ export function buildVeoPrompt(input: PromptInput): string {
   if (input.supportsAudio && !AUDIO_KEYWORDS.test(scene)) {
     parts.push(DEFAULT_AUDIO_PROMPT);
   }
+
+  const result = parts.filter(Boolean).join('. ');
+  return result.length > MAX_PROMPT_CHARS
+    ? `${result.slice(0, MAX_PROMPT_CHARS - 1).trimEnd()}…`
+    : result;
+}
+
+export interface ImagePromptInput {
+  prompt: string;
+  stylePreset?: string;
+}
+
+/**
+ * Assembles the Imagen/Gemini prompt in scene -> style -> quality order.
+ *
+ * The style preset is the whole point of the picker: the label alone means nothing to the
+ * model, so it is expanded here and appended to what the user typed.
+ */
+export function buildImagePrompt(input: ImagePromptInput): string {
+  const scene = (input.prompt ?? '').trim();
+  const style = (input.stylePreset ?? '').trim();
+
+  const parts = [scene];
+  if (style) parts.push(IMAGE_STYLE_PRESET_PROMPTS[style] ?? `${style} style`);
+  parts.push(IMAGE_QUALITY_SUFFIX);
 
   const result = parts.filter(Boolean).join('. ');
   return result.length > MAX_PROMPT_CHARS

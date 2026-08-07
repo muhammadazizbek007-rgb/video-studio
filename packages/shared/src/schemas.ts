@@ -90,6 +90,43 @@ export const updateGenerationSchema = z.object({
 });
 export type UpdateGenerationInput = z.infer<typeof updateGenerationSchema>;
 
+/**
+ * Image generation — the Cinema Studio tab's Image mode.
+ *
+ * Imagen answers in seconds rather than minutes, so unlike a video generation this is a
+ * request/response: the record is written already finished. `finalPrompt` is kept because
+ * the style preset is folded into the prompt server-side, and without it there is no way
+ * to tell what the model was actually asked for.
+ */
+
+export const imageAspectRatioSchema = z.enum(['1:1', '16:9', '9:16', '4:3', '3:4']);
+export type ImageAspectRatio = z.infer<typeof imageAspectRatioSchema>;
+
+export const imageGenerationStatusSchema = z.enum(['completed', 'failed']);
+
+export const imageGenerationDtoSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  prompt: z.string(),
+  finalPrompt: z.string(),
+  modelId: z.string().min(1),
+  aspectRatio: imageAspectRatioSchema,
+  stylePreset: videoStylePresetSchema,
+  status: imageGenerationStatusSchema,
+  imageUrl: z.string().optional(),
+  errorMessage: z.string().optional(),
+  createdAt: z.iso.datetime(),
+});
+export type ImageGenerationDto = z.infer<typeof imageGenerationDtoSchema>;
+
+export const createImageGenerationSchema = z.object({
+  prompt: z.string().min(1).max(8000),
+  modelId: z.string().min(1),
+  aspectRatio: imageAspectRatioSchema,
+  stylePreset: videoStylePresetSchema,
+});
+export type CreateImageGenerationInput = z.infer<typeof createImageGenerationSchema>;
+
 export const elementDtoSchema = z.object({
   id: z.string().min(1),
   userId: z.string().min(1),

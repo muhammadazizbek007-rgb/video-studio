@@ -35,6 +35,7 @@ import { GenerationModel } from '../db/models/generation.js';
 import { getEnv } from '../env.js';
 import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
+import { buildImagePrompt } from '../prompt.js';
 import type { GenerationDocument } from '../services/generations.js';
 import {
   createGeneration,
@@ -473,6 +474,9 @@ function registerImageTools(server: McpServer, user: AuthUser): void {
           .string()
           .optional()
           .describe(`Image model id. Available: ${IMAGE_MODEL_LIST.map((s) => s.id).join(', ')}.`),
+        style: videoStylePresetSchema
+          .optional()
+          .describe('Visual style preset, expanded into the prompt before it reaches the model'),
       },
     },
     async (args) =>
@@ -482,10 +486,17 @@ function registerImageTools(server: McpServer, user: AuthUser): void {
         const jobId = randomUUID();
         await ensureImageJobIndexes();
 
+        // Same expansion the REST route uses, so a preset means one thing across the product.
+        const finalPrompt = buildImagePrompt({
+          prompt: args.prompt,
+          stylePreset: args.style,
+        });
+
         const base = {
           jobId,
           userId: ownerId(user),
           prompt: args.prompt,
+          finalPrompt,
           modelId,
           aspectRatio,
           createdAt: new Date(),
@@ -494,7 +505,7 @@ function registerImageTools(server: McpServer, user: AuthUser): void {
         try {
           const image = await generateImage({
             userId: user.id,
-            prompt: args.prompt,
+            prompt: finalPrompt,
             modelId,
             aspectRatio,
           });

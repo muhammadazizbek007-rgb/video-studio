@@ -2,12 +2,14 @@ import type {
   ElementDto,
   ElementRef,
   GenerationDto,
+  ImageGenerationDto,
   StoryboardDto,
   StoryboardSegmentDto,
   UserDto,
 } from '@video-studio/shared';
 import type { ElementDoc } from './models/element.js';
 import type { GenerationDoc } from './models/generation.js';
+import type { ImageGenerationDoc } from './models/imageGeneration.js';
 import type { StoryboardDoc } from './models/storyboard.js';
 import type { UserDoc } from './models/user.js';
 
@@ -71,6 +73,23 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   assignOptional(dto, 'resultVideoUrl', doc.resultVideoUrl);
   assignOptional(dto, 'errorMessage', doc.errorMessage);
   assignOptional(dto, 'lastFrameImageUrl', doc.lastFrameImageUrl);
+  return dto;
+}
+
+export function toImageGenerationDto(doc: ImageGenerationDoc): ImageGenerationDto {
+  const dto: ImageGenerationDto = {
+    id: doc._id.toString(),
+    userId: doc.userId.toString(),
+    prompt: doc.prompt,
+    finalPrompt: doc.finalPrompt,
+    modelId: doc.modelId,
+    aspectRatio: doc.aspectRatio,
+    stylePreset: doc.stylePreset,
+    status: doc.status,
+    createdAt: iso(doc.createdAt),
+  };
+  assignOptional(dto, 'imageUrl', doc.imageUrl);
+  assignOptional(dto, 'errorMessage', doc.errorMessage);
   return dto;
 }
 

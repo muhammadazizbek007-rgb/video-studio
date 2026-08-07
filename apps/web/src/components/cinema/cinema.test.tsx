@@ -1,12 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { VeoModelSpec } from '@video-studio/shared';
+import type { ImageGenerationDto, VeoModelSpec } from '@video-studio/shared';
 import { requireVeoModel } from '@video-studio/shared';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { CinemaBottomBar } from '@/components/cinema/CinemaBottomBar';
+import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
+import { ImageLibraryModal } from '@/components/cinema/ImageLibraryModal';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 
@@ -36,6 +37,7 @@ function renderStrip(
     segmentStates: over.segmentStates ?? { '1': 'empty' as SegmentState },
     uploading: [],
     onPickImage: vi.fn(),
+    onPickFromLibrary: vi.fn(),
     onPickVideo: vi.fn(),
     onClearSegment: vi.fn(),
     onClearSlot: vi.fn(),
@@ -47,19 +49,39 @@ function renderStrip(
 }
 
 describe('SegmentStrip', () => {
-  it('opens the image picker on a plain click', async () => {
+  it('offers both sources on a plain click, and uploads from the first', async () => {
     const user = userEvent.setup();
     const onPickImage = vi.fn();
     const onPickVideo = vi.fn();
     renderStrip({ onPickImage, onPickVideo });
 
     await user.click(screen.getByRole('button', { name: /^1\.1/ }));
+    // The menu stands between the slot and the file dialog now.
+    expect(onPickImage).not.toHaveBeenCalled();
+
+    const menu = screen.getByRole('menu', { name: /1\.1/ });
+    await user.click(within(menu).getByRole('menuitem', { name: /from your computer/i }));
 
     expect(onPickImage).toHaveBeenCalledWith('1.1');
     expect(onPickVideo).not.toHaveBeenCalled();
   });
 
-  it('opens the video picker on Ctrl+Click instead', async () => {
+  it('reaches the library from the same menu', async () => {
+    const user = userEvent.setup();
+    const onPickImage = vi.fn();
+    const onPickFromLibrary = vi.fn();
+    renderStrip({ onPickImage, onPickFromLibrary });
+
+    await user.click(screen.getByRole('button', { name: /^1\.2/ }));
+    await user.click(screen.getByRole('menuitem', { name: /from the library/i }));
+
+    expect(onPickFromLibrary).toHaveBeenCalledWith('1.2');
+    expect(onPickImage).not.toHaveBeenCalled();
+    // Choosing closes it: a menu left open would cover the slot it just filled.
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('skips the menu entirely on Ctrl+Click, and still picks a video', async () => {
     const user = userEvent.setup();
     const onPickImage = vi.fn();
     const onPickVideo = vi.fn();
@@ -69,6 +91,7 @@ describe('SegmentStrip', () => {
     await user.click(screen.getByRole('button', { name: /^1\.2/ }));
     await user.keyboard('{/Control}');
 
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(onPickVideo).toHaveBeenCalledWith('1');
     expect(onPickImage).not.toHaveBeenCalled();
   });
@@ -97,6 +120,68 @@ describe('SegmentStrip', () => {
     await user.click(screen.getByRole('button', { name: /^retry$/i }));
 
     expect(onRetrySegment).toHaveBeenCalledWith('1');
+  });
+});
+
+function libraryImage(over: Partial<ImageGenerationDto> = {}): ImageGenerationDto {
+  return {
+    id: 'img-1',
+    userId: 'user-1',
+    prompt: 'a lighthouse at dusk',
+    finalPrompt: 'a lighthouse at dusk, cinematic',
+    modelId: 'gemini-image',
+    aspectRatio: '16:9',
+    stylePreset: 'Cinematic',
+    status: 'completed',
+    imageUrl: 'https://example.test/lighthouse.png',
+    createdAt: '2026-08-07T10:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('ImageLibraryModal', () => {
+  const noop = () => undefined;
+
+  it('hands back the picked image', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderUi(
+      <ImageLibraryModal
+        open
+        images={[libraryImage()]}
+        loading={false}
+        onSelect={onSelect}
+        onClose={noop}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /lighthouse at dusk/i }));
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'img-1' }));
+  });
+
+  it('leaves out generations that produced no picture', () => {
+    renderUi(
+      <ImageLibraryModal
+        open
+        images={[
+          libraryImage(),
+          libraryImage({ id: 'img-2', status: 'failed', imageUrl: undefined }),
+        ]}
+        loading={false}
+        onSelect={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(screen.getAllByRole('img')).toHaveLength(1);
+  });
+
+  it('says so when the account has generated nothing yet', () => {
+    renderUi(<ImageLibraryModal open images={[]} loading={false} onSelect={noop} onClose={noop} />);
+
+    expect(screen.getByText(/nothing generated yet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('cinema-library')).not.toBeInTheDocument();
   });
 });
 
@@ -176,20 +261,29 @@ describe('CinemaPlayer', () => {
 });
 
 /** Drives the bar with real state so model changes flow back through the props. */
-function BottomBarHarness({ onDuration }: { onDuration?: (value: number) => void }) {
+function BottomBarHarness({
+  onDuration,
+  mode = 'Video',
+}: {
+  onDuration?: (value: number) => void;
+  mode?: CinemaInputMode;
+}) {
   const [modelId, setModelId] = useState('veo-3.1');
   const model: VeoModelSpec = requireVeoModel(modelId);
   const [duration, setDuration] = useState<VeoModelSpec['defaultDuration']>(8);
+  const [imageModelId, setImageModelId] = useState('gemini-image');
 
   return (
     <CinemaBottomBar
-      mode="Video"
+      mode={mode}
       onModeChange={() => undefined}
       prompt="a shot"
       onPromptChange={() => undefined}
       model={model}
       modelId={modelId}
       onModelChange={setModelId}
+      imageModelId={imageModelId}
+      onImageModelChange={setImageModelId}
       aspect="16:9"
       onAspectChange={() => undefined}
       duration={duration}
@@ -232,5 +326,22 @@ describe('CinemaBottomBar', () => {
     expect(within(panel).getByRole('option', { name: /^4s$/ })).toBeInTheDocument();
     expect(within(panel).queryByRole('option', { name: /^5s$/ })).not.toBeInTheDocument();
     expect(within(panel).queryByRole('option', { name: /^7s$/ })).not.toBeInTheDocument();
+  });
+
+  it('lists only image models in Image mode, and drops the duration chip', async () => {
+    const user = userEvent.setup();
+    renderUi(<BottomBarHarness mode="Image" />);
+
+    // 8s, matching the harness: asserting the absence of a chip that never had
+    // that label would pass whatever the component did.
+    expect(screen.queryByRole('button', { name: /^8s$/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /google gemini image/i }));
+    const panel = screen.getByRole('listbox', { name: /choose a model/i });
+    expect(within(panel).getByRole('option', { name: /google gemini image/i })).toBeInTheDocument();
+    // The load-bearing half: Image mode must not offer video models. The picker happens to
+    // hold a single entry now that every Imagen model was withdrawn, so an assertion about
+    // "some other image model" would only be testing the catalogue's length.
+    expect(within(panel).queryByRole('option', { name: /veo/i })).not.toBeInTheDocument();
   });
 });

@@ -20,10 +20,12 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 
 import {
+  buildImagePrompt,
   buildNegativePrompt,
   buildVeoPrompt,
   CAMERA_MOTION_PROMPTS,
   enrichPrompt,
+  IMAGE_STYLE_PRESET_PROMPTS,
   STYLE_PRESET_PROMPTS,
 } from './prompt.js';
 
@@ -186,6 +188,38 @@ describe('buildNegativePrompt', () => {
       if (preset === 'Static') continue;
       expect(buildNegativePrompt(preset)).toBe(base);
     }
+  });
+});
+
+describe('buildImagePrompt', () => {
+  it('expands every style preset into its own description', () => {
+    for (const [preset, phrase] of Object.entries(IMAGE_STYLE_PRESET_PROMPTS)) {
+      const built = buildImagePrompt({ prompt: 'A ceramic mug on a desk', stylePreset: preset });
+      expect(built.startsWith(`A ceramic mug on a desk. ${phrase}.`)).toBe(true);
+    }
+  });
+
+  it('gives two different presets two different prompts', () => {
+    const cinematic = buildImagePrompt({ prompt: 'A mug', stylePreset: 'Cinematic' });
+    const ugc = buildImagePrompt({ prompt: 'A mug', stylePreset: 'UGC' });
+    expect(cinematic).not.toBe(ugc);
+  });
+
+  it('describes an unknown preset rather than dropping it', () => {
+    expect(buildImagePrompt({ prompt: 'A mug', stylePreset: 'Noir' })).toContain('Noir style');
+  });
+
+  it('still guards against text and watermarks with no preset chosen', () => {
+    const built = buildImagePrompt({ prompt: 'A mug' });
+    expect(built).toBe(
+      'A mug. Sharp, high detail, no watermark, no logo overlay, no captions or burned-in text',
+    );
+  });
+
+  it('caps an over-long prompt', () => {
+    const built = buildImagePrompt({ prompt: 'x'.repeat(5000), stylePreset: 'Cinematic' });
+    expect(built).toHaveLength(1800);
+    expect(built.endsWith('…')).toBe(true);
   });
 });
 
