@@ -7,6 +7,10 @@ dist/
 build/
 .output/
 .turbo/
+# TypeScript's incremental cache. It is rewritten by every build, so tracking it
+# means a permanently dirty working tree and a diff on every commit that touches
+# nothing anyone wrote.
+*.tsbuildinfo
 
 # Environment variables — NEVER commit
 .env
