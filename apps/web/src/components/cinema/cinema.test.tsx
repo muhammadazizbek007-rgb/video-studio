@@ -1,13 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ImageGenerationDto, VeoModelSpec } from '@video-studio/shared';
+import type { VeoModelSpec } from '@video-studio/shared';
 import { requireVeoModel } from '@video-studio/shared';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
-import { ImageLibraryModal } from '@/components/cinema/ImageLibraryModal';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 
@@ -35,9 +34,7 @@ function renderStrip(
     slotImages: over.slotImages ?? {},
     segmentVideos: over.segmentVideos ?? {},
     segmentStates: over.segmentStates ?? { '1': 'empty' as SegmentState },
-    uploading: [],
     onPickImage: vi.fn(),
-    onPickFromLibrary: vi.fn(),
     onPickVideo: vi.fn(),
     onClearSegment: vi.fn(),
     onClearSlot: vi.fn(),
@@ -49,39 +46,19 @@ function renderStrip(
 }
 
 describe('SegmentStrip', () => {
-  it('offers both sources on a plain click, and uploads from the first', async () => {
+  it('asks for a frame on a plain click', async () => {
     const user = userEvent.setup();
     const onPickImage = vi.fn();
     const onPickVideo = vi.fn();
     renderStrip({ onPickImage, onPickVideo });
 
     await user.click(screen.getByRole('button', { name: /^1\.1/ }));
-    // The menu stands between the slot and the file dialog now.
-    expect(onPickImage).not.toHaveBeenCalled();
-
-    const menu = screen.getByRole('menu', { name: /1\.1/ });
-    await user.click(within(menu).getByRole('menuitem', { name: /from your computer/i }));
 
     expect(onPickImage).toHaveBeenCalledWith('1.1');
     expect(onPickVideo).not.toHaveBeenCalled();
   });
 
-  it('reaches the library from the same menu', async () => {
-    const user = userEvent.setup();
-    const onPickImage = vi.fn();
-    const onPickFromLibrary = vi.fn();
-    renderStrip({ onPickImage, onPickFromLibrary });
-
-    await user.click(screen.getByRole('button', { name: /^1\.2/ }));
-    await user.click(screen.getByRole('menuitem', { name: /from the library/i }));
-
-    expect(onPickFromLibrary).toHaveBeenCalledWith('1.2');
-    expect(onPickImage).not.toHaveBeenCalled();
-    // Choosing closes it: a menu left open would cover the slot it just filled.
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-  });
-
-  it('skips the menu entirely on Ctrl+Click, and still picks a video', async () => {
+  it('asks for a clip on Ctrl+Click instead', async () => {
     const user = userEvent.setup();
     const onPickImage = vi.fn();
     const onPickVideo = vi.fn();
@@ -91,7 +68,6 @@ describe('SegmentStrip', () => {
     await user.click(screen.getByRole('button', { name: /^1\.2/ }));
     await user.keyboard('{/Control}');
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(onPickVideo).toHaveBeenCalledWith('1');
     expect(onPickImage).not.toHaveBeenCalled();
   });
@@ -120,68 +96,6 @@ describe('SegmentStrip', () => {
     await user.click(screen.getByRole('button', { name: /^retry$/i }));
 
     expect(onRetrySegment).toHaveBeenCalledWith('1');
-  });
-});
-
-function libraryImage(over: Partial<ImageGenerationDto> = {}): ImageGenerationDto {
-  return {
-    id: 'img-1',
-    userId: 'user-1',
-    prompt: 'a lighthouse at dusk',
-    finalPrompt: 'a lighthouse at dusk, cinematic',
-    modelId: 'gemini-image',
-    aspectRatio: '16:9',
-    stylePreset: 'Cinematic',
-    status: 'completed',
-    imageUrl: 'https://example.test/lighthouse.png',
-    createdAt: '2026-08-07T10:00:00.000Z',
-    ...over,
-  };
-}
-
-describe('ImageLibraryModal', () => {
-  const noop = () => undefined;
-
-  it('hands back the picked image', async () => {
-    const user = userEvent.setup();
-    const onSelect = vi.fn();
-    renderUi(
-      <ImageLibraryModal
-        open
-        images={[libraryImage()]}
-        loading={false}
-        onSelect={onSelect}
-        onClose={noop}
-      />,
-    );
-
-    await user.click(screen.getByRole('button', { name: /lighthouse at dusk/i }));
-
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'img-1' }));
-  });
-
-  it('leaves out generations that produced no picture', () => {
-    renderUi(
-      <ImageLibraryModal
-        open
-        images={[
-          libraryImage(),
-          libraryImage({ id: 'img-2', status: 'failed', imageUrl: undefined }),
-        ]}
-        loading={false}
-        onSelect={noop}
-        onClose={noop}
-      />,
-    );
-
-    expect(screen.getAllByRole('img')).toHaveLength(1);
-  });
-
-  it('says so when the account has generated nothing yet', () => {
-    renderUi(<ImageLibraryModal open images={[]} loading={false} onSelect={noop} onClose={noop} />);
-
-    expect(screen.getByText(/nothing generated yet/i)).toBeInTheDocument();
-    expect(screen.queryByTestId('cinema-library')).not.toBeInTheDocument();
   });
 });
 

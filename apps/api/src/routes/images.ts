@@ -1,4 +1,4 @@
-import { createImageGenerationSchema } from '@video-studio/shared';
+import { createImageGenerationSchema, updateImageGenerationSchema } from '@video-studio/shared';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -47,6 +47,21 @@ export const imageRoutes: FastifyPluginAsyncZod = async (fastify) => {
     async (request) => {
       const user = requireAuthUser(request);
       const doc = await createImageGeneration(user, request.body);
+      return toImageGenerationDto(doc);
+    },
+  );
+
+  fastify.patch(
+    '/:id',
+    {
+      preHandler: fastify.authenticate,
+      schema: { params: idParamsSchema, body: updateImageGenerationSchema },
+    },
+    async (request) => {
+      const user = requireAuthUser(request);
+      const doc = await requireOwnedImage(request.params.id, user.id);
+      if (request.body.saved !== undefined) doc.saved = request.body.saved;
+      await doc.save();
       return toImageGenerationDto(doc);
     },
   );

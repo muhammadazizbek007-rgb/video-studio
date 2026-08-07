@@ -152,6 +152,22 @@ describe('image routes', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it('likes a still so the picker can collect it', async () => {
+    const { cookie } = await signIn('liker@example.com');
+    const created = await createImage(cookie);
+    expect(created.saved).toBe(false);
+
+    const liked = await app.inject({
+      method: 'PATCH',
+      url: `/api/images/${created.id}`,
+      headers: { cookie },
+      payload: { saved: true },
+    });
+
+    expect(liked.statusCode).toBe(200);
+    expect(parse<ImageGenerationDto>(liked.body).saved).toBe(true);
+  });
+
   it("does not delete another account's image", async () => {
     const owner = await signIn('owner@example.com');
     const intruder = await signIn('intruder@example.com');

@@ -1,7 +1,8 @@
 import type { CreateElementInput, ElementDto, VideoElementCategory } from '@video-studio/shared';
 import { buildHandle, ELEMENT_CATEGORY_LABELS } from '@video-studio/shared';
 import { ImagePlus, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
+import { MediaPicker } from '@/components/media/MediaPicker';
 import {
   Badge,
   Button,
@@ -21,7 +22,6 @@ import {
   useUpdateElement,
 } from '@/hooks/useElements';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { api } from '@/lib/api';
 
 const CATEGORIES: readonly VideoElementCategory[] = ['general', 'character', 'location', 'prop'];
 
@@ -56,10 +56,9 @@ export function ElementLibrary() {
   const nameId = useId();
   const categoryId = useId();
   const descriptionId = useId();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ElementDto | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [formError, setFormError] = useState('');
 
   const items = elements ?? [];
@@ -81,17 +80,10 @@ export function ElementLibrary() {
     });
   }
 
-  async function uploadImage(file: File) {
-    setUploading(true);
+  function applyImage(url: string) {
     setFormError('');
-    try {
-      const uploaded = await api.media.upload(file);
-      setDraft((current) => (current ? { ...current, imageUrl: uploaded.url } : current));
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : t('upload.failed'));
-    } finally {
-      setUploading(false);
-    }
+    setDraft((current) => (current ? { ...current, imageUrl: url } : current));
+    setPickerOpen(false);
   }
 
   async function save() {
@@ -270,27 +262,10 @@ export function ElementLibrary() {
               {draft.imageUrl ? (
                 <img src={draft.imageUrl} alt="" className="h-16 w-16 rounded-xl object-cover" />
               ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                loading={uploading}
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <Button type="button" variant="secondary" onClick={() => setPickerOpen(true)}>
                 <ImagePlus className="h-4 w-4" />
                 {draft.imageUrl ? t('element.replaceImage') : t('element.addImage')}
               </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-                aria-label={t('element.addImage')}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (file) void uploadImage(file);
-                }}
-              />
             </div>
 
             {formError ? (
@@ -310,6 +285,15 @@ export function ElementLibrary() {
           </div>
         ) : null}
       </Modal>
+
+      <MediaPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        accept="image"
+        selectedUrl={draft?.imageUrl || null}
+        title={t('element.addImage')}
+        onSelect={(asset) => applyImage(asset.url)}
+      />
 
       <Modal
         open={pendingDelete !== null}

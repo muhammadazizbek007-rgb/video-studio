@@ -115,9 +115,16 @@ export const imageGenerationDtoSchema = z.object({
   status: imageGenerationStatusSchema,
   imageUrl: z.string().optional(),
   errorMessage: z.string().optional(),
+  /** Liked. Feeds the media picker's "Liked" tab alongside saved videos and uploads. */
+  saved: z.boolean(),
   createdAt: z.iso.datetime(),
 });
 export type ImageGenerationDto = z.infer<typeof imageGenerationDtoSchema>;
+
+export const updateImageGenerationSchema = z.object({
+  saved: z.boolean().optional(),
+});
+export type UpdateImageGenerationInput = z.infer<typeof updateImageGenerationSchema>;
 
 export const createImageGenerationSchema = z.object({
   prompt: z.string().min(1).max(8000),
@@ -126,6 +133,37 @@ export const createImageGenerationSchema = z.object({
   stylePreset: videoStylePresetSchema,
 });
 export type CreateImageGenerationInput = z.infer<typeof createImageGenerationSchema>;
+
+/**
+ * Uploads — files the account has sent us, kept as records rather than loose bytes.
+ *
+ * Before this existed an upload was write-only: the URL came back once and whatever the
+ * caller did not save was lost. The media picker needs to list them, so every upload is
+ * now a row that can be listed, liked and deleted.
+ */
+
+export const mediaKindSchema = z.enum(['image', 'video']);
+export type MediaKind = z.infer<typeof mediaKindSchema>;
+
+export const uploadDtoSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  url: z.string().min(1),
+  /** Storage key — needed to delete the object, so the client passes it back untouched. */
+  path: z.string().min(1),
+  kind: mediaKindSchema,
+  contentType: z.string().min(1),
+  bytes: z.number().int().min(0),
+  filename: z.string(),
+  saved: z.boolean(),
+  createdAt: z.iso.datetime(),
+});
+export type UploadDto = z.infer<typeof uploadDtoSchema>;
+
+export const updateUploadSchema = z.object({
+  saved: z.boolean().optional(),
+});
+export type UpdateUploadInput = z.infer<typeof updateUploadSchema>;
 
 export const elementDtoSchema = z.object({
   id: z.string().min(1),

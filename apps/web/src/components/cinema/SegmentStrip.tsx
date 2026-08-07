@@ -1,10 +1,8 @@
 import { Images, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import type { MouseEvent } from 'react';
-import { useState } from 'react';
 import { Spinner, Surface } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
-import { SlotSourceMenu } from './SlotSourceMenu';
 
 export type SegmentState = 'done' | 'generating' | 'failed' | 'empty';
 
@@ -18,10 +16,8 @@ export interface SegmentStripProps {
   slotImages: Readonly<Record<string, string>>;
   segmentVideos: Readonly<Record<string, string>>;
   segmentStates: Readonly<Record<string, SegmentState>>;
-  uploading: readonly string[];
+  /** Opens the media picker for this slot; Ctrl/Cmd+click asks for a clip instead. */
   onPickImage: (label: string) => void;
-  /** Same slot, but filled from the stills this account already generated. */
-  onPickFromLibrary: (label: string) => void;
   onPickVideo: (segment: string) => void;
   onClearSegment: (segment: string) => void;
   onClearSlot: (label: string) => void;
@@ -61,17 +57,13 @@ export function SegmentStrip({
   slotImages,
   segmentVideos,
   segmentStates,
-  uploading,
   onPickImage,
-  onPickFromLibrary,
   onPickVideo,
   onClearSegment,
   onClearSlot,
   onRetrySegment,
 }: SegmentStripProps) {
   const { t } = useLanguage();
-  /** The slot whose source menu is open, with the rect the menu is placed against. */
-  const [menu, setMenu] = useState<{ label: string; anchor: DOMRect } | null>(null);
 
   return (
     <Surface
@@ -158,7 +150,6 @@ export function SegmentStrip({
                 {([1, 2] as const).map((slot) => {
                   const label = slotLabel(segment, slot);
                   const image = slotImages[label];
-                  const busy = uploading.includes(label);
 
                   return (
                     <div key={label} className="group/slot relative flex-1">
@@ -181,10 +172,9 @@ export function SegmentStrip({
                             onPickVideo(segment);
                             return;
                           }
-                          setMenu({
-                            label,
-                            anchor: event.currentTarget.getBoundingClientRect(),
-                          });
+                          // Opens the media picker, which is where the file dialog now
+                          // lives — one tile among the account's existing media.
+                          onPickImage(label);
                         }}
                         className={cn(
                           'relative size-full overflow-hidden rounded-md bg-surface',
@@ -213,14 +203,8 @@ export function SegmentStrip({
                             <span className="text-[10px] font-semibold text-text-subtle">
                               {label}
                             </span>
-                            {busy ? (
-                              <Spinner size="sm" />
-                            ) : (
-                              <>
-                                <Images className="size-6 text-text-subtle" aria-hidden />
-                                <Plus className="size-3 text-text-subtle" aria-hidden />
-                              </>
-                            )}
+                            <Images className="size-6 text-text-subtle" aria-hidden />
+                            <Plus className="size-3 text-text-subtle" aria-hidden />
                           </span>
                         )}
                       </button>
@@ -232,22 +216,6 @@ export function SegmentStrip({
           </div>
         );
       })}
-
-      {menu ? (
-        <SlotSourceMenu
-          anchor={menu.anchor}
-          slot={menu.label}
-          onUpload={() => {
-            onPickImage(menu.label);
-            setMenu(null);
-          }}
-          onLibrary={() => {
-            onPickFromLibrary(menu.label);
-            setMenu(null);
-          }}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
     </Surface>
   );
 }

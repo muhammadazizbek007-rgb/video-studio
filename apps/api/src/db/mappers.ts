@@ -5,12 +5,14 @@ import type {
   ImageGenerationDto,
   StoryboardDto,
   StoryboardSegmentDto,
+  UploadDto,
   UserDto,
 } from '@video-studio/shared';
 import type { ElementDoc } from './models/element.js';
 import type { GenerationDoc } from './models/generation.js';
 import type { ImageGenerationDoc } from './models/imageGeneration.js';
 import type { StoryboardDoc } from './models/storyboard.js';
+import type { UploadDoc } from './models/upload.js';
 import type { UserDoc } from './models/user.js';
 
 function iso(value: Date | undefined): string {
@@ -76,6 +78,21 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   return dto;
 }
 
+export function toUploadDto(doc: UploadDoc): UploadDto {
+  return {
+    id: doc._id.toString(),
+    userId: doc.userId.toString(),
+    url: doc.url,
+    path: doc.storagePath,
+    kind: doc.kind,
+    contentType: doc.contentType,
+    bytes: doc.bytes ?? 0,
+    filename: doc.filename ?? '',
+    saved: doc.saved ?? false,
+    createdAt: iso(doc.createdAt),
+  };
+}
+
 export function toImageGenerationDto(doc: ImageGenerationDoc): ImageGenerationDto {
   const dto: ImageGenerationDto = {
     id: doc._id.toString(),
@@ -86,6 +103,7 @@ export function toImageGenerationDto(doc: ImageGenerationDoc): ImageGenerationDt
     aspectRatio: doc.aspectRatio,
     stylePreset: doc.stylePreset,
     status: doc.status,
+    saved: doc.saved ?? false,
     createdAt: iso(doc.createdAt),
   };
   assignOptional(dto, 'imageUrl', doc.imageUrl);

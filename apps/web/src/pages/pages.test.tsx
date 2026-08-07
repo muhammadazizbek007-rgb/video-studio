@@ -50,6 +50,17 @@ vi.mock('@/hooks/useAuth', () => ({
 
 vi.mock('@/hooks/useElements', () => ({
   useElements: () => ({ data: elementsMock, isLoading: false, isError: false }),
+  useUpdateElement: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+/** The reference slots open the media picker, which reads these libraries. */
+vi.mock('@/hooks/useMediaLibrary', () => ({
+  useUploads: () => ({ data: [], isPending: false, refetch: vi.fn() }),
+  useImageGenerations: () => ({ data: [], isPending: false }),
+  useUpdateUpload: () => ({ mutate: vi.fn() }),
+  useDeleteUpload: () => ({ mutate: vi.fn() }),
+  useUpdateImageGeneration: () => ({ mutate: vi.fn() }),
+  useDeleteImageGeneration: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock('@/hooks/useGenerationStream', () => ({

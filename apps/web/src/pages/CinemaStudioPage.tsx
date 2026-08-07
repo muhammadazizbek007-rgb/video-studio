@@ -15,9 +15,9 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
-import { ImageLibraryModal } from '@/components/cinema/ImageLibraryModal';
 import { ImageResults } from '@/components/cinema/ImageResults';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
+import { MediaPicker } from '@/components/media/MediaPicker';
 import { IconButton, Spinner, Surface } from '@/components/ui';
 import { useStoryboard, useStoryboardCapabilities } from '@/hooks/useStoryboard';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -27,12 +27,9 @@ import { downloadBlob, stitchSegments } from '@/lib/stitchSegments';
 const MODE_STORAGE_KEY = 'cinemaInputMode';
 /** The board stores only the Veo model, so the image pick lives next to the mode. */
 const IMAGE_MODEL_STORAGE_KEY = 'cinemaImageModel';
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const BROWSER_EXPORT_FILENAME = 'cinema-studio.webm';
 const SERVER_EXPORT_FILENAME = 'cinema-studio.mp4';
 const PROMPT_SAVE_DELAY_MS = 700;
-/** The picker shows more than the gallery does: it is a browse surface, not a feed. */
-const LIBRARY_PAGE_SIZE = 100;
 
 /** Layout offsets from the spec: the player clears the strip, the strip clears the bar. */
 const PLAYER_BOTTOM = 310;
@@ -94,18 +91,15 @@ export function CinemaStudioPage() {
   const [images, setImages] = useState<ImageGenerationDto[]>([]);
   const [isImaging, setIsImaging] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const [uploading, setUploading] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
+  /** Which slot (or which segment) the media picker is currently filling. */
+  const [picking, setPicking] = useState<
+    { kind: 'frame'; index: number; slot: 1 | 2 } | { kind: 'video'; index: number } | null
+  >(null);
 
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
-  const activeSlotRef = useRef<{ index: number; slot: 1 | 2 } | null>(null);
-  const activeSegmentRef = useRef<number | null>(null);
   /** Set while a server export we started is still running, so only we download the result. */
   const awaitingExportRef = useRef(false);
 
@@ -201,25 +195,6 @@ export function CinemaStudioPage() {
     [setSegmentDuration, segments],
   );
 
-  async function uploadFile(label: string, file: File, accept: readonly string[]) {
-    setError('');
-    if (!accept.includes(file.type)) {
-      setError(accept === IMAGE_TYPES ? t('upload.badType') : t('cinema.uploadBadVideo'));
-      return null;
-    }
-    setUploading((current) => [...current, label]);
-    try {
-      // The storage key travels back with the URL: it is what lets the server delete this
-      // file when the slot is replaced or cleared, instead of leaking it on disk.
-      return await api.media.upload(file);
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : t('cinema.uploadFailed'));
-      return null;
-    } finally {
-      setUploading((current) => current.filter((item) => item !== label));
-    }
-  }
-
   /**
    * Image mode generates here rather than handing the prompt to the video studio: the
    * style preset is a real parameter of the request, and a redirect would drop it.
@@ -246,31 +221,26 @@ export function CinemaStudioPage() {
   }
 
   /**
-   * The library lists this account's own stills, so it is the same collection the Image tab
-   * shows — re-read on open rather than cached, because a still generated minutes ago is
-   * exactly the one a user reaches for here.
+   * Only the URL travels into the slot, never the storage key.
+   *
+   * The key is what authorises a delete, and every source in the picker — an upload, a
+   * still, an element — is a library item in its own right. Clearing a slot must not erase
+   * the picture out from under the library that still lists it.
    */
-  function openLibrary(label: string) {
-    activeSlotRef.current = parseSlotLabel(label);
-    setError('');
-    setLibraryOpen(true);
-    setLibraryLoading(true);
-    void api.images
-      .list(LIBRARY_PAGE_SIZE)
-      .then((page) => setImages(page.items))
-      .catch(() => setError(t('cinema.libraryLoadFailed')))
-      .finally(() => setLibraryLoading(false));
-  }
+  function handlePicked(url: string) {
+    const target = picking;
+    setPicking(null);
+    if (!target || !url) return;
 
-  function handleLibraryPick(image: ImageGenerationDto) {
-    const target = activeSlotRef.current;
-    setLibraryOpen(false);
-    if (!target || !image.imageUrl) return;
+    if (target.kind === 'video') {
+      void actions.setSegmentVideo(target.index, { url }).catch(() => {
+        setError(t('cinema.libraryPickFailed'));
+      });
+      return;
+    }
 
-    // Only the URL travels: the storage key is what authorises a delete, and the picture
-    // belongs to the generation, not to this slot. Clearing the slot must not erase it.
     const apply = target.slot === 2 ? actions.setLastFrame : actions.setFirstFrame;
-    void apply(target.index, { url: image.imageUrl }).catch(() => {
+    void apply(target.index, { url }).catch(() => {
       setError(t('cinema.libraryPickFailed'));
     });
   }
@@ -399,6 +369,23 @@ export function CinemaStudioPage() {
   const banner = error || notice;
   const exporting = isSaving || storyboard.exportStatus === 'processing';
 
+  // What the picker should show as already chosen, and what it is filling.
+  const pickerSelection =
+    picking === null
+      ? null
+      : picking.kind === 'video'
+        ? (segmentVideos[segmentId(picking.index)] ?? null)
+        : (slotImages[slotKey(picking.index, picking.slot)] ?? null);
+
+  const pickerTitle =
+    picking === null
+      ? undefined
+      : picking.kind === 'video'
+        ? `${segmentId(picking.index)} — ${t('cinema.modeVideo')}`
+        : `${slotKey(picking.index, picking.slot)} — ${
+            picking.slot === 2 ? t('cinema.slotLastFrame') : t('cinema.slotFirstFrame')
+          }`;
+
   return (
     <section className="relative min-h-[620px] overflow-hidden rounded-lg bg-surface shadow-neu-raised lg:min-h-[720px]">
       {mode === 'Video' ? (
@@ -425,15 +412,14 @@ export function CinemaStudioPage() {
               slotImages={slotImages}
               segmentVideos={segmentVideos}
               segmentStates={segmentStates}
-              uploading={uploading}
               onPickImage={(label) => {
-                activeSlotRef.current = parseSlotLabel(label);
-                imageInputRef.current?.click();
+                const { index, slot } = parseSlotLabel(label);
+                setError('');
+                setPicking({ kind: 'frame', index, slot });
               }}
-              onPickFromLibrary={openLibrary}
               onPickVideo={(id) => {
-                activeSegmentRef.current = Number(id) - 1;
-                videoInputRef.current?.click();
+                setError('');
+                setPicking({ kind: 'video', index: Number(id) - 1 });
               }}
               onClearSegment={(id) => {
                 void actions.clearSegmentGeneration(Number(id) - 1).catch(() => undefined);
@@ -537,51 +523,13 @@ export function CinemaStudioPage() {
         onGenerate={handleGenerate}
       />
 
-      <ImageLibraryModal
-        open={libraryOpen}
-        images={images}
-        loading={libraryLoading}
-        onSelect={handleLibraryPick}
-        onClose={() => setLibraryOpen(false)}
-      />
-
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept={IMAGE_TYPES.join(',')}
-        className="sr-only"
-        aria-label={t('upload.firstFrame')}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          const target = activeSlotRef.current;
-          if (!file || !target) return;
-          void uploadFile(slotKey(target.index, target.slot), file, IMAGE_TYPES).then(
-            (uploaded) => {
-              if (!uploaded) return;
-              const apply = target.slot === 2 ? actions.setLastFrame : actions.setFirstFrame;
-              void apply(target.index, uploaded).catch(() => undefined);
-            },
-          );
-        }}
-      />
-
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/mp4"
-        className="sr-only"
-        aria-label={t('cinema.modeVideo')}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          const index = activeSegmentRef.current;
-          if (!file || index === null) return;
-          void uploadFile(segmentId(index), file, ['video/mp4']).then((uploaded) => {
-            if (!uploaded) return;
-            void actions.setSegmentVideo(index, uploaded).catch(() => undefined);
-          });
-        }}
+      <MediaPicker
+        open={picking !== null}
+        onClose={() => setPicking(null)}
+        accept={picking?.kind === 'video' ? 'video' : 'image'}
+        selectedUrl={pickerSelection}
+        title={pickerTitle}
+        onSelect={(asset) => handlePicked(asset.url)}
       />
     </section>
   );

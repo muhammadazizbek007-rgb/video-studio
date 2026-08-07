@@ -10,14 +10,18 @@ import {
   type GenerationDto,
   generationDtoSchema,
   imageGenerationDtoSchema,
+  type MediaKind,
   mcpKeyIssuedDtoSchema,
   mcpKeyStatusDtoSchema,
   type StoryboardDto,
   storyboardDtoSchema,
   type UpdateElementInput,
   type UpdateGenerationInput,
+  type UpdateImageGenerationInput,
   type UpdateStoryboardInput,
   type UpdateStoryboardSegmentInput,
+  type UpdateUploadInput,
+  uploadDtoSchema,
   userDtoSchema,
   videoAspectRatioSchema,
   videoDurationSchema,
@@ -85,9 +89,8 @@ const imageGenerationListSchema = z.object({
   items: z.array(imageGenerationDtoSchema),
 });
 
-const uploadResponseSchema = z.object({
-  url: z.string(),
-  path: z.string(),
+const uploadListSchema = z.object({
+  items: z.array(uploadDtoSchema),
 });
 
 const enrichResponseSchema = z.object({
@@ -105,7 +108,7 @@ export type ModelsResponse = z.infer<typeof modelsResponseSchema>;
 export type GenerationPage = z.infer<typeof generationPageSchema>;
 export type StoryboardPage = z.infer<typeof storyboardPageSchema>;
 export type StoryboardCapabilities = z.infer<typeof storyboardCapabilitiesSchema>;
-export type UploadResult = z.infer<typeof uploadResponseSchema>;
+export type UploadResult = z.infer<typeof uploadDtoSchema>;
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -292,6 +295,8 @@ export const api = {
     /** Resolves only once the picture exists: Imagen answers in seconds, not minutes. */
     create: (input: CreateImageGenerationInput) =>
       requestJson('/images', imageGenerationDtoSchema, { method: 'POST', body: input }),
+    update: (id: string, input: UpdateImageGenerationInput) =>
+      requestJson(`/images/${id}`, imageGenerationDtoSchema, { method: 'PATCH', body: input }),
     remove: async (id: string): Promise<void> => {
       await send(`/images/${id}`, { method: 'DELETE' });
     },
@@ -370,7 +375,16 @@ export const api = {
     upload: (file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      return requestJson('/media/upload', uploadResponseSchema, { method: 'POST', formData });
+      return requestJson('/media/upload', uploadDtoSchema, { method: 'POST', formData });
+    },
+    list: (params: { kind?: MediaKind; limit?: number } = {}) =>
+      requestJson('/media/uploads', uploadListSchema, {
+        query: { kind: params.kind, limit: params.limit },
+      }),
+    update: (id: string, input: UpdateUploadInput) =>
+      requestJson(`/media/uploads/${id}`, uploadDtoSchema, { method: 'PATCH', body: input }),
+    remove: async (id: string): Promise<void> => {
+      await send(`/media/uploads/${id}`, { method: 'DELETE' });
     },
   },
   mcp: {

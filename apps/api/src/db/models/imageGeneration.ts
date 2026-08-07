@@ -27,6 +27,8 @@ export interface ImageGenerationDoc {
   imageUrl?: string;
   storagePath?: string;
   errorMessage?: string;
+  /** Liked by the user; the media picker's "Liked" tab reads it. */
+  saved: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,6 +50,7 @@ const imageGenerationSchema = new Schema<ImageGenerationDoc>(
     imageUrl: { type: String },
     storagePath: { type: String },
     errorMessage: { type: String },
+    saved: { type: Boolean, required: true, default: false },
   },
   { timestamps: true },
 );

@@ -4,6 +4,8 @@ export const qk = {
   generations: ['generations'],
   generation: (id: string) => ['generation', id],
   elements: ['elements'],
+  images: ['images'],
+  uploads: ['uploads'],
   storyboards: ['storyboards'],
   storyboard: (id: string) => ['storyboard', id],
   storyboardCapabilities: ['storyboard-capabilities'],
