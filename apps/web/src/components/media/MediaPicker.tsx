@@ -489,7 +489,9 @@ export function MediaPicker({
       onClose={onClose}
       size="xl"
       title={creatingElement ? t('element.newTitle') : (title ?? t('media.title'))}
-      description={creatingElement ? t('element.subtitle') : (description ?? t('media.description'))}
+      description={
+        creatingElement ? t('element.subtitle') : (description ?? t('media.description'))
+      }
       closeLabel={t('common.close')}
     >
       <div className="flex flex-col gap-4">
