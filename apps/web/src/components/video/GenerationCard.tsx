@@ -1,9 +1,10 @@
 import type { GenerationDto } from '@video-studio/shared';
 import { getVeoModel } from '@video-studio/shared';
-import { Film, Heart, RotateCcw, Trash2 } from 'lucide-react';
+import { CircleQuestionMark, Film, Heart, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button, Card, IconButton, Modal } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { GenerationFailureDialog } from './GenerationFailureDialog';
 import { StatusPill } from './StatusPill';
 
 interface GenerationCardProps {
@@ -30,6 +31,7 @@ export function GenerationCard({
 }: GenerationCardProps) {
   const { language, t } = useLanguage();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [failureOpen, setFailureOpen] = useState(false);
 
   const poster = generation.referenceImageUrls[0];
   const modelName = getVeoModel(generation.modelId)?.name ?? generation.modelId;
@@ -84,6 +86,16 @@ export function GenerationCard({
           </>
         ) : null}
         <span className="ml-auto flex items-center gap-1">
+          {/* The clipped message above names the failure in the language of a log, so the
+              card offers to explain it rather than leaving that as the last word. */}
+          {generation.status === 'failed' ? (
+            <IconButton
+              type="button"
+              label={t('generation.why')}
+              icon={<CircleQuestionMark />}
+              onClick={() => setFailureOpen(true)}
+            />
+          ) : null}
           {/* A clip that failed is worth another run more often than not — the reference
               image was briefly unreachable, the model was busy — and rebuilding the prompt
               and its settings by hand to find that out is the whole cost. */}
@@ -111,6 +123,12 @@ export function GenerationCard({
           />
         </span>
       </div>
+
+      <GenerationFailureDialog
+        open={failureOpen}
+        onClose={() => setFailureOpen(false)}
+        errorMessage={generation.errorMessage}
+      />
 
       <Modal
         open={confirmOpen}

@@ -1,3 +1,5 @@
+export type { GenerationFailureCause } from './failures.js';
+export { classifyGenerationFailure, isGenerationFailureWorthRetrying } from './failures.js';
 export {
   generationFirstFrameImageUrl,
   retryGenerationInput,

@@ -46,6 +46,42 @@ const ru = {
   'generation.delete': 'Удалить',
   'generation.regenerate': 'Сгенерировать заново',
   'generation.regenerateFailed': 'Не удалось запустить генерацию заново',
+  'generation.why': 'Почему произошла ошибка',
+  'failure.title': 'Почему не получилось',
+  'failure.whatToDo': 'Что делать',
+  'failure.detail': 'Ответ сервера',
+  'failure.retryHint': 'Причина, скорее всего, временная — попробуйте запустить генерацию заново.',
+  'failure.noRetryHint':
+    'Повтор с тем же запросом закончится так же — сначала измените промпт или настройки.',
+  'failure.referenceImage':
+    'Сервис не смог получить одну из картинок, приложенных к запросу: первый или последний кадр либо фото упомянутого элемента. Файл был недоступен, отдавался слишком долго, оказался не картинкой или превысил лимит размера.',
+  'failure.referenceImageAction':
+    'Откройте элемент или кадр и загрузите изображение заново, затем повторите генерацию.',
+  'failure.blocked':
+    'Veo отказался генерировать это видео: запрос не прошёл фильтры безопасности Google. Решение принимает сторона Google, и оно относится к самому запросу, а не к сбою сервиса.',
+  'failure.blockedAction':
+    'Перепишите промпт: уберите упоминания насилия, откровённых сцен, реальных публичных людей и торговых марок.',
+  'failure.emptyResult':
+    'Veo принял задачу и завершил её, но видео не вернул. Это сбой на стороне модели, а не ошибка в вашем запросе.',
+  'failure.emptyResultAction': 'Запустите генерацию заново — обычно повтор проходит.',
+  'failure.rateLimit':
+    'Превышена квота Google Cloud на генерацию видео. Слишком много запросов за короткое время либо исчерпан дневной лимит проекта.',
+  'failure.rateLimitAction': 'Подождите несколько минут и повторите.',
+  'failure.service':
+    'Vertex AI ответил ошибкой или не ответил вовремя. Это временный сбой на стороне Google.',
+  'failure.serviceAction': 'Подождите немного и повторите генерацию.',
+  'failure.configuration':
+    'Сервер не смог обратиться к Vertex AI: не настроен сервисный аккаунт Google или у него нет нужных прав. Это проблема конфигурации, а не вашего запроса.',
+  'failure.configurationAction':
+    'Повтор не поможет — нужна настройка доступа к Google Cloud на сервере.',
+  'failure.unsupported':
+    'Выбранная модель не поддерживает то, что было в запросе: например, генерацию из картинки, закрывающий кадр или такое соотношение сторон.',
+  'failure.unsupportedAction':
+    'Выберите другую модель или уберите неподдерживаемую настройку, затем запустите генерацию.',
+  'failure.unknown':
+    'Однозначно определить причину не удалось. Ниже — сообщение, которое вернул сервер.',
+  'failure.unknownAction': 'Попробуйте повторить генерацию.',
+  'failure.noMessage': 'Сервер не сохранил сообщение об ошибке для этой генерации.',
   'generation.deleteTitle': 'Удалить генерацию',
   'generation.deleteConfirm': 'Видео будет удалено безвозвратно. Продолжить?',
 
@@ -407,6 +443,41 @@ const uz: Dictionary = {
   'generation.delete': 'O‘chirish',
   'generation.regenerate': 'Qaytadan generatsiya qilish',
   'generation.regenerateFailed': 'Qaytadan generatsiyani boshlab bo‘lmadi',
+  'generation.why': 'Xatolik nega yuz berdi',
+  'failure.title': 'Nega chiqmadi',
+  'failure.whatToDo': 'Nima qilish kerak',
+  'failure.detail': 'Server javobi',
+  'failure.retryHint': 'Sabab vaqtinchalik bo‘lishi mumkin — qaytadan generatsiya qilib ko‘ring.',
+  'failure.noRetryHint':
+    'Xuddi shu so‘rov bilan qayta urinish ham shunday tugaydi — avval promptni yoki sozlamalarni o‘zgartiring.',
+  'failure.referenceImage':
+    'Xizmat so‘rovga biriktirilgan rasmlardan birini ololmadi: birinchi yoki oxirgi kadr, yoki eslatilgan elementning surati. Fayl mavjud emas edi, juda sekin ochildi, rasm emas edi yoki hajm chegarasidan oshdi.',
+  'failure.referenceImageAction':
+    'Elementni yoki kadrni oching va rasmni qaytadan yuklang, so‘ng generatsiyani takrorlang.',
+  'failure.blocked':
+    'Veo bu videoni yaratishdan bosh tortdi: so‘rov Google xavfsizlik filtridan o‘tmadi. Qaror Google tomonidan qabul qilinadi va u so‘rovning o‘ziga tegishli.',
+  'failure.blockedAction':
+    'Promptni qayta yozing: zo‘ravonlik, ochiq sahnalar, real mashhur shaxslar va brendlar haqidagi eslatmalarni olib tashlang.',
+  'failure.emptyResult':
+    'Veo vazifani qabul qildi va tugatdi, lekin video qaytarmadi. Bu model tomonidagi nosozlik, so‘rovingizdagi xato emas.',
+  'failure.emptyResultAction': 'Qaytadan generatsiya qiling — odatda takror urinish o‘tadi.',
+  'failure.rateLimit':
+    'Google Cloud’ning video generatsiya kvotasi oshib ketdi. Qisqa vaqtda juda ko‘p so‘rov yuborilgan yoki loyihaning kunlik chegarasi tugagan.',
+  'failure.rateLimitAction': 'Bir necha daqiqa kutib, qayta urinib ko‘ring.',
+  'failure.service':
+    'Vertex AI xatolik qaytardi yoki o‘z vaqtida javob bermadi. Bu Google tomonidagi vaqtinchalik nosozlik.',
+  'failure.serviceAction': 'Biroz kutib, generatsiyani takrorlang.',
+  'failure.configuration':
+    'Server Vertex AI’ga ulana olmadi: Google xizmat akkaunti sozlanmagan yoki uning huquqlari yetarli emas. Bu sozlama muammosi, so‘rovingiz emas.',
+  'failure.configurationAction':
+    'Takrorlash yordam bermaydi — serverda Google Cloud kirish huquqini sozlash kerak.',
+  'failure.unsupported':
+    'Tanlangan model so‘rovdagi imkoniyatni qo‘llab-quvvatlamaydi: masalan, rasmdan video, yakuniy kadr yoki shu nisbat.',
+  'failure.unsupportedAction':
+    'Boshqa modelni tanlang yoki qo‘llab-quvvatlanmaydigan sozlamani olib tashlang, so‘ng generatsiyani boshlang.',
+  'failure.unknown': 'Sababni aniq belgilab bo‘lmadi. Quyida server qaytargan xabar keltirilgan.',
+  'failure.unknownAction': 'Generatsiyani qaytadan urinib ko‘ring.',
+  'failure.noMessage': 'Server bu generatsiya uchun xatolik xabarini saqlamagan.',
   'generation.deleteTitle': 'Generatsiyani o‘chirish',
   'generation.deleteConfirm': 'Video butunlay o‘chiriladi. Davom etamizmi?',
 
@@ -765,6 +836,42 @@ const en: Dictionary = {
   'generation.delete': 'Delete',
   'generation.regenerate': 'Generate again',
   'generation.regenerateFailed': 'Could not start the generation again',
+  'generation.why': 'Why this failed',
+  'failure.title': 'Why this failed',
+  'failure.whatToDo': 'What to do',
+  'failure.detail': 'Server response',
+  'failure.retryHint': 'The cause is most likely temporary — try generating it again.',
+  'failure.noRetryHint':
+    'Running the same request again will end the same way — change the prompt or the settings first.',
+  'failure.referenceImage':
+    'The service could not fetch one of the images attached to the request: the first or last frame, or the photo of a mentioned element. The file was unreachable, took too long, was not an image, or exceeded the size limit.',
+  'failure.referenceImageAction':
+    'Open the element or the frame, upload the image again, then retry the generation.',
+  'failure.blocked':
+    'Veo refused to generate this video: the request did not pass Google’s safety filters. That decision is made on Google’s side and is about the request itself, not a service fault.',
+  'failure.blockedAction':
+    'Rewrite the prompt: drop references to violence, explicit scenes, real public figures and trademarks.',
+  'failure.emptyResult':
+    'Veo accepted the job and finished it, but returned no video. This is a fault on the model’s side, not an error in your request.',
+  'failure.emptyResultAction': 'Generate it again — a second attempt usually goes through.',
+  'failure.rateLimit':
+    'The Google Cloud quota for video generation was exceeded: too many requests in a short window, or the project’s daily limit is spent.',
+  'failure.rateLimitAction': 'Wait a few minutes and try again.',
+  'failure.service':
+    'Vertex AI returned an error or did not answer in time. This is a temporary fault on Google’s side.',
+  'failure.serviceAction': 'Wait a little and run the generation again.',
+  'failure.configuration':
+    'The server could not reach Vertex AI: the Google service account is not configured, or it lacks the required permissions. This is a configuration problem, not your request.',
+  'failure.configurationAction':
+    'Retrying will not help — Google Cloud access has to be set up on the server.',
+  'failure.unsupported':
+    'The chosen model does not support something the request asked for: image-to-video, a closing frame, or that aspect ratio.',
+  'failure.unsupportedAction':
+    'Pick a different model or drop the unsupported setting, then run the generation.',
+  'failure.unknown':
+    'The cause could not be identified with confidence. The message the server returned is below.',
+  'failure.unknownAction': 'Try running the generation again.',
+  'failure.noMessage': 'The server stored no error message for this generation.',
   'generation.deleteTitle': 'Delete generation',
   'generation.deleteConfirm': 'This video will be deleted permanently. Continue?',
 

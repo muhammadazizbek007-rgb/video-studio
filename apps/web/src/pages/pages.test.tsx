@@ -490,3 +490,69 @@ describe('GenerationCard regeneration', () => {
     expect(onRegenerate).not.toHaveBeenCalled();
   });
 });
+
+describe('GenerationCard failure explanation', () => {
+  function failedWith(errorMessage?: string): GenerationDto {
+    return { ...generationFixture({ id: 'gen-failed', status: 'failed' }), errorMessage };
+  }
+
+  it('explains a reference image failure in the reader’s language, server words included', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <GenerationCard generation={failedWith('Downloading the reference image failed.')} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Почему произошла ошибка' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Почему не получилось' });
+    expect(within(dialog).getByText(/не смог получить одну из картинок/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/загрузите изображение заново/)).toBeInTheDocument();
+    // The raw message is introduced, never swapped out — it is what a bug report needs.
+    expect(within(dialog).getByText('Downloading the reference image failed.')).toBeInTheDocument();
+  });
+
+  // A safety block is a decision about the request, so promising that a retry might work
+  // would be a lie the button itself already tempts people into.
+  it('says a retry will not help when the request was blocked', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <GenerationCard generation={failedWith('Veo blocked the generation: safety filters')} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Почему произошла ошибка' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Почему не получилось' });
+    expect(within(dialog).getByText(/сначала измените промпт/)).toBeInTheDocument();
+  });
+
+  it('admits it cannot explain a message it does not recognise', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <GenerationCard generation={failedWith('kernel panic in the mainframe')} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Почему произошла ошибка' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Почему не получилось' });
+    expect(within(dialog).getByText(/определить причину не удалось/)).toBeInTheDocument();
+    expect(within(dialog).getByText('kernel panic in the mainframe')).toBeInTheDocument();
+  });
+
+  it('says so when the server recorded no message at all', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<GenerationCard generation={failedWith()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Почему произошла ошибка' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Почему не получилось' });
+    expect(within(dialog).getByText(/не сохранил сообщение об ошибке/)).toBeInTheDocument();
+  });
+
+  it('stays off a card that did not fail', () => {
+    renderWithProviders(
+      <GenerationCard generation={generationFixture({ id: 'gen-ok', status: 'completed' })} />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Почему произошла ошибка' })).toBeNull();
+  });
+});
