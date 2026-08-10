@@ -3,6 +3,7 @@ import type {
   GenerationDto,
   ImageGenerationDto,
   UploadDto,
+  VideoElementCategory,
 } from '@video-studio/shared';
 
 /**
@@ -30,6 +31,10 @@ export interface MediaAsset {
   title: string;
   subtitle?: string;
   badge?: string;
+  /** Elements only — what the Elements tab filters by. */
+  category?: VideoElementCategory;
+  /** Elements only — the free text their search runs over. */
+  description?: string;
   saved: boolean;
   /** False for sources with no like of their own — a video that is still rendering. */
   likeable: boolean;
@@ -56,7 +61,7 @@ export function uploadToAsset(upload: UploadDto): MediaAsset {
 }
 
 export function elementToAsset(element: ElementDto): MediaAsset {
-  return {
+  const asset: MediaAsset = {
     key: `element:${element.id}`,
     id: element.id,
     source: 'element',
@@ -66,12 +71,15 @@ export function elementToAsset(element: ElementDto): MediaAsset {
     title: element.name,
     subtitle: element.handle,
     badge: element.category,
+    category: element.category,
     // Elements carry `pinned`, which is the same idea under a different name.
     saved: element.pinned,
     likeable: true,
     deletable: false,
     createdAt: element.createdAt,
   };
+  if (element.description) asset.description = element.description;
+  return asset;
 }
 
 export function imageToAsset(image: ImageGenerationDto): MediaAsset {

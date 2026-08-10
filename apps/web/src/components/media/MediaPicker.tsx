@@ -1,8 +1,18 @@
 import type { MediaKind } from '@video-studio/shared';
-import { AtSign, Film, Heart, type Images, Sparkles, Upload } from 'lucide-react';
+import {
+  AtSign,
+  Film,
+  Heart,
+  type Images,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  TriangleAlert,
+  Upload,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Spinner, Surface } from '@/components/ui';
+import { Button, Modal, Spinner, Surface } from '@/components/ui';
 import { useElements, useUpdateElement } from '@/hooks/useElements';
 import { useGenerations, useUpdateGeneration } from '@/hooks/useGenerations';
 import {
@@ -17,6 +27,11 @@ import { useLanguage } from '@/i18n/LanguageContext';
 import type { TranslationKey } from '@/i18n/translations';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import type { ElementUsage } from '@/lib/elementUsage';
+import { markElementUsed, readElementUsage } from '@/lib/elementUsage';
+import { ElementCreateForm } from './ElementCreateForm';
+import type { ElementCategoryFilter, ElementSort } from './ElementFilterBar';
+import { ElementFilterBar } from './ElementFilterBar';
 import { MediaTile } from './MediaTile';
 import type { MediaAsset } from './mediaAssets';
 import { byNewest, elementToAsset, imageToAsset, uploadToAsset, videoToAsset } from './mediaAssets';
@@ -25,6 +40,14 @@ type TabId = 'uploads' | 'elements' | 'images' | 'videos' | 'liked';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const VIDEO_TYPES = ['video/mp4'];
+
+/** The grid's non-asset tiles — "Upload a file" and "Create element" — share this shape. */
+const ACTION_TILE = cn(
+  'flex aspect-square flex-col items-center justify-center gap-2 rounded-md bg-surface p-4',
+  'text-center shadow-neu-raised-sm transition-[box-shadow,transform] duration-[120ms]',
+  'hover:shadow-neu-raised active:scale-[0.985] disabled:opacity-60',
+  'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-accent',
+);
 
 export interface MediaPickerProps {
   open: boolean;
@@ -109,7 +132,14 @@ export function MediaPicker({
 
   const [tab, setTab] = useState<TabId>('uploads');
   const [uploading, setUploading] = useState(false);
+  const [creatingElement, setCreatingElement] = useState(false);
   const [error, setError] = useState('');
+
+  const [elementQuery, setElementQuery] = useState('');
+  const [elementSort, setElementSort] = useState<ElementSort>('created');
+  const [elementCategory, setElementCategory] = useState<ElementCategoryFilter>('all');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [usage, setUsage] = useState<ElementUsage>(readElementUsage);
 
   const uploads = useUploads(accept);
   const elements = useElements();
@@ -123,9 +153,29 @@ export function MediaPicker({
   const deleteImage = useDeleteImageGeneration();
   const updateVideo = useUpdateGeneration();
 
-  // A picker reopened after an error should not still be showing it.
+  // Held in a ref so opening the picker can refresh every list without the effect
+  // re-running on each render as the query objects are recreated.
+  const refreshRef = useRef<() => void>(() => undefined);
+  refreshRef.current = () => {
+    void uploads.refetch();
+    void elements.refetch();
+    void images.refetch();
+    videos.refetch();
+  };
+
+  // A picker reopened after an error should not still be showing it, nor a half-filled
+  // element form from the last time it was open.
   useEffect(() => {
-    if (open) setError('');
+    if (open) {
+      setError('');
+      setCreatingElement(false);
+      setFilterMenuOpen(false);
+      // Another tab of the app may have used an element since this picker last rendered.
+      setUsage(readElementUsage());
+      // The library is only interesting at the moment it is opened, and by then something
+      // generated elsewhere in the app may be missing from it.
+      refreshRef.current();
+    }
   }, [open]);
 
   const uploadAssets = useMemo(
@@ -141,6 +191,30 @@ export function MediaPicker({
         .sort(byNewest),
     [elements.data],
   );
+
+  // What the Elements tab actually shows: the search and the filter menu narrow the list,
+  // the sort reorders it. Liked keeps using the unfiltered `elementAssets`.
+  const visibleElementAssets = useMemo(() => {
+    const needle = elementQuery.trim().toLowerCase();
+    const filtered = elementAssets.filter((asset) => {
+      if (elementCategory !== 'all' && asset.category !== elementCategory) return false;
+      if (!needle) return true;
+      return [asset.title, asset.subtitle, asset.description].some((field) =>
+        field?.toLowerCase().includes(needle),
+      );
+    });
+
+    if (elementSort === 'name') {
+      return filtered.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    if (elementSort === 'used') {
+      // Never-used elements sort below the used ones, newest first among themselves.
+      return filtered.sort(
+        (a, b) => (usage[b.id] ?? '').localeCompare(usage[a.id] ?? '') || byNewest(a, b),
+      );
+    }
+    return filtered.sort(byNewest);
+  }, [elementAssets, elementQuery, elementCategory, elementSort, usage]);
 
   const imageAssets = useMemo(
     () =>
@@ -184,12 +258,15 @@ export function MediaPicker({
   // Guards against landing on a tab the current `accept` hides — Video mode has no
   // Elements tab, and the state survives between openings.
   useEffect(() => {
-    if (!visibleTabs.some((spec) => spec.id === tab)) setTab('uploads');
+    if (!visibleTabs.some((spec) => spec.id === tab)) {
+      setTab('uploads');
+      setCreatingElement(false);
+    }
   }, [visibleTabs, tab]);
 
   const assetsByTab: Record<TabId, MediaAsset[]> = {
     uploads: uploadAssets,
-    elements: elementAssets,
+    elements: visibleElementAssets,
     images: imageAssets,
     videos: videoAssets,
     liked: likedAssets,
@@ -203,10 +280,30 @@ export function MediaPicker({
     liked: uploads.isPending || images.isPending || videos.isLoading || elements.isPending,
   };
 
+  // A library that could not be fetched must not read as a library with nothing in it —
+  // that sent people off to regenerate pictures they already had.
+  const failedByTab: Record<TabId, boolean> = {
+    uploads: uploads.isError,
+    elements: elements.isError,
+    images: images.isError,
+    videos: videos.isError,
+    liked: uploads.isError || images.isError || videos.isError || elements.isError,
+  };
+
   const active: TabSpec = visibleTabs.find((spec) => spec.id === tab) ?? UPLOADS_TAB;
   const assets = assetsByTab[active.id];
   const loading = loadingByTab[active.id];
+  const failed = failedByTab[active.id];
   const acceptedTypes = wantsVideo ? VIDEO_TYPES : IMAGE_TYPES;
+  const showElementControls = active.id === 'elements' && !creatingElement;
+  const narrowedElements =
+    active.id === 'elements' && (elementQuery.trim() !== '' || elementCategory !== 'all');
+
+  /** Selection is also what feeds the "Last used" sort — nothing else records a use. */
+  function handleSelect(asset: MediaAsset) {
+    if (asset.source === 'element') setUsage(markElementUsed(asset.id));
+    onSelect(asset);
+  }
 
   function toggleSaved(asset: MediaAsset) {
     setError('');
@@ -257,12 +354,42 @@ export function MediaPicker({
   }
 
   let body: ReactNode;
+  if (creatingElement) {
+    body = (
+      <ElementCreateForm
+        onCancel={() => setCreatingElement(false)}
+        onCreated={() => setCreatingElement(false)}
+      />
+    );
+  }
   // Uploads never waits behind a spinner: its "Upload a file" tile is the one control
   // someone with an empty library actually needs.
-  if (loading && assets.length === 0 && active.id !== 'uploads') {
+  else if (loading && assets.length === 0 && active.id !== 'uploads') {
     body = (
       <div className="flex min-h-64 items-center justify-center">
         <Spinner size="lg" />
+      </div>
+    );
+  } else if (failed && assets.length === 0) {
+    body = (
+      <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
+        <Surface
+          elevation="inset-sm"
+          radius="full"
+          className="flex size-14 items-center justify-center text-danger"
+        >
+          <TriangleAlert className="size-6" aria-hidden />
+        </Surface>
+        <p className="text-sm font-semibold">{t('media.loadFailed')}</p>
+        <p className="max-w-sm text-xs text-text-muted">{t('media.loadFailedBody')}</p>
+        <Button
+          type="button"
+          variant="secondary"
+          icon={<RefreshCw className="size-4" />}
+          onClick={() => refreshRef.current()}
+        >
+          {t('common.retry')}
+        </Button>
       </div>
     );
   } else if (assets.length === 0 && active.id !== 'uploads') {
@@ -275,8 +402,24 @@ export function MediaPicker({
         >
           <active.Icon className="size-6" aria-hidden />
         </Surface>
-        <p className="text-sm font-semibold">{t(active.emptyTitle)}</p>
-        <p className="max-w-sm text-xs text-text-muted">{t(active.emptyBody)}</p>
+        {/* An empty library and an empty result set need different words — "no elements yet"
+            under an active search would read as if the ones just created were gone. */}
+        <p className="text-sm font-semibold">
+          {narrowedElements ? t('elementFilter.noMatches') : t(active.emptyTitle)}
+        </p>
+        <p className="max-w-sm text-xs text-text-muted">
+          {narrowedElements ? t('elementFilter.noMatchesBody') : t(active.emptyBody)}
+        </p>
+        {active.id === 'elements' && !narrowedElements ? (
+          <Button
+            type="button"
+            variant="secondary"
+            icon={<Plus className="size-4" />}
+            onClick={() => setCreatingElement(true)}
+          >
+            {t('element.createCta')}
+          </Button>
+        ) : null}
       </div>
     );
   } else {
@@ -285,17 +428,28 @@ export function MediaPicker({
         className="grid max-h-[52vh] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4"
         data-testid="media-grid"
       >
+        {active.id === 'elements' ? (
+          <button type="button" onClick={() => setCreatingElement(true)} className={ACTION_TILE}>
+            <Surface
+              elevation="inset-sm"
+              radius="full"
+              className="flex size-10 items-center justify-center text-accent"
+            >
+              <Plus className="size-4" aria-hidden />
+            </Surface>
+            <span className="text-sm font-semibold">{t('element.createCta')}</span>
+            <span className="text-[11px] leading-tight text-text-subtle">
+              {t('element.subtitle')}
+            </span>
+          </button>
+        ) : null}
+
         {active.id === 'uploads' ? (
           <button
             type="button"
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              'flex aspect-square flex-col items-center justify-center gap-2 rounded-md bg-surface p-4',
-              'text-center shadow-neu-raised-sm transition-[box-shadow,transform] duration-[120ms]',
-              'hover:shadow-neu-raised active:scale-[0.985] disabled:opacity-60',
-              'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-accent',
-            )}
+            className={ACTION_TILE}
           >
             {uploading ? (
               <Spinner size="md" />
@@ -320,7 +474,7 @@ export function MediaPicker({
             key={asset.key}
             asset={asset}
             selected={Boolean(selectedUrl) && asset.url === selectedUrl}
-            onSelect={onSelect}
+            onSelect={handleSelect}
             onToggleSaved={toggleSaved}
             onDelete={remove}
           />
@@ -334,12 +488,18 @@ export function MediaPicker({
       open={open}
       onClose={onClose}
       size="xl"
-      title={title ?? t('media.title')}
-      description={description ?? t('media.description')}
+      title={creatingElement ? t('element.newTitle') : (title ?? t('media.title'))}
+      description={creatingElement ? t('element.subtitle') : (description ?? t('media.description'))}
       closeLabel={t('common.close')}
     >
       <div className="flex flex-col gap-4">
-        <div role="tablist" aria-label={t('media.title')} className="flex flex-wrap gap-2">
+        <div
+          role="tablist"
+          aria-label={t('media.title')}
+          // Hidden while the element form is up: the tabs would switch out from under a
+          // half-filled form and drop what was typed.
+          className={cn('flex flex-wrap gap-2', creatingElement && 'hidden')}
+        >
           {visibleTabs.map((spec) => {
             const isActive = spec.id === active.id;
             return (
@@ -365,7 +525,20 @@ export function MediaPicker({
           })}
         </div>
 
-        {error ? (
+        {showElementControls ? (
+          <ElementFilterBar
+            query={elementQuery}
+            onQueryChange={setElementQuery}
+            sort={elementSort}
+            onSortChange={setElementSort}
+            category={elementCategory}
+            onCategoryChange={setElementCategory}
+            menuOpen={filterMenuOpen}
+            onMenuOpenChange={setFilterMenuOpen}
+          />
+        ) : null}
+
+        {error && !creatingElement ? (
           <p role="alert" className="text-xs text-danger">
             {error}
           </p>

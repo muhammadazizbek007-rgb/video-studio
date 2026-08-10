@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CreateImageGenerationInput,
   ImageGenerationDto,
   MediaKind,
   UpdateImageGenerationInput,
@@ -28,6 +29,29 @@ export function useImageGenerations() {
     queryKey: qk.images,
     queryFn: () => api.images.list(),
     select: (page) => page.items,
+  });
+}
+
+/**
+ * Generating goes through the cache, not around it.
+ *
+ * The studio used to hold its stills in local state, so a picture made there never reached
+ * the picker's Images tab until the page was reloaded — two lists of the same thing, only
+ * one of them current. Both now read `qk.images`.
+ */
+export function useCreateImageGeneration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateImageGenerationInput) => api.images.create(input),
+    onSuccess: (created) => {
+      queryClient.setQueryData<{ items: ImageGenerationDto[] }>(qk.images, (current) =>
+        current ? { ...current, items: [created, ...current.items] } : { items: [created] },
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.images });
+    },
   });
 }
 

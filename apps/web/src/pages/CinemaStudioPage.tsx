@@ -1,9 +1,4 @@
-import type {
-  ImageAspectRatio,
-  ImageGenerationDto,
-  StoryboardDto,
-  VeoModelSpec,
-} from '@video-studio/shared';
+import type { ImageAspectRatio, StoryboardDto, VeoModelSpec } from '@video-studio/shared';
 import {
   DEFAULT_IMAGE_MODEL_ID,
   DEFAULT_VIDEO_MODEL_ID,
@@ -19,9 +14,14 @@ import { ImageResults } from '@/components/cinema/ImageResults';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { MediaPicker } from '@/components/media/MediaPicker';
 import { IconButton, Spinner, Surface } from '@/components/ui';
+import {
+  useCreateImageGeneration,
+  useDeleteImageGeneration,
+  useImageGenerations,
+} from '@/hooks/useMediaLibrary';
 import { useStoryboard, useStoryboardCapabilities } from '@/hooks/useStoryboard';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { ApiClientError, api } from '@/lib/api';
+import { ApiClientError } from '@/lib/api';
 import { downloadBlob, stitchSegments } from '@/lib/stitchSegments';
 
 const MODE_STORAGE_KEY = 'cinemaInputMode';
@@ -86,10 +86,16 @@ export function CinemaStudioPage() {
   const { storyboard, isLoading, isError, isGenerating, actions, reload } = useStoryboard();
   const { serverStitching } = useStoryboardCapabilities();
 
+  // The same query the media picker reads, so a still generated here is on its Images tab
+  // immediately instead of after a reload.
+  const imageLibrary = useImageGenerations();
+  const createImage = useCreateImageGeneration();
+  const deleteImage = useDeleteImageGeneration();
+  const images = useMemo(() => imageLibrary.data ?? [], [imageLibrary.data]);
+  const isImaging = createImage.isPending;
+
   const [mode, setMode] = useState<CinemaInputMode>(readStoredMode);
   const [imageModelId, setImageModelId] = useState<string>(readStoredImageModel);
-  const [images, setImages] = useState<ImageGenerationDto[]>([]);
-  const [isImaging, setIsImaging] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
@@ -110,21 +116,6 @@ export function CinemaStudioPage() {
   useEffect(() => {
     window.sessionStorage.setItem(IMAGE_MODEL_STORAGE_KEY, imageModelId);
   }, [imageModelId]);
-
-  // Loaded once rather than per mode switch: the gallery is small and a returning user
-  // expects yesterday's stills to still be on the tab.
-  useEffect(() => {
-    let cancelled = false;
-    void api.images
-      .list()
-      .then((page) => {
-        if (!cancelled) setImages(page.items);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // The stored prompt seeds the field once. After that the field is the source of truth,
   // so a save round-trip can never overwrite what is being typed.
@@ -204,19 +195,15 @@ export function CinemaStudioPage() {
 
     setError('');
     setNotice('');
-    setIsImaging(true);
     try {
-      const created = await api.images.create({
+      await createImage.mutateAsync({
         prompt: prompt.trim(),
         modelId: imageModelId,
         aspectRatio: storyboard.aspectRatio as ImageAspectRatio,
         stylePreset: storyboard.stylePreset,
       });
-      setImages((current) => [created, ...current]);
     } catch (imageError) {
       setError(imageError instanceof Error ? imageError.message : t('cinema.imageFailed'));
-    } finally {
-      setIsImaging(false);
     }
   }
 
@@ -246,13 +233,9 @@ export function CinemaStudioPage() {
   }
 
   function handleDeleteImage(id: string) {
-    const previous = images;
-    setImages((current) => current.filter((image) => image.id !== id));
-    void api.images.remove(id).catch(() => {
-      // Put it back rather than pretend: the picture is still on the server.
-      setImages(previous);
-      setError(t('cinema.imageDeleteFailed'));
-    });
+    // The mutation removes it from the cache first and refetches when it settles, so a
+    // failed delete puts the picture back on its own.
+    deleteImage.mutate(id, { onError: () => setError(t('cinema.imageDeleteFailed')) });
   }
 
   function handleGenerate() {
