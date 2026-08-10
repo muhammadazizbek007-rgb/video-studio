@@ -1,3 +1,7 @@
+export {
+  generationFirstFrameImageUrl,
+  retryGenerationInput,
+} from './generations.js';
 export { buildHandle, ELEMENT_CATEGORY_LABELS, extractMentions } from './helpers.js';
 
 export type { FramePolicy, ResolvedMentions, ResolveMentionsInput } from './mentions.js';

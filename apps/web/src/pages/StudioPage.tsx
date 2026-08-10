@@ -12,6 +12,7 @@ import {
   getVeoModel,
   requireVeoModel,
   resolveDuration,
+  retryGenerationInput,
 } from '@video-studio/shared';
 import { Wand2 } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -56,6 +57,7 @@ export function StudioPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const { data: elements } = useElements();
@@ -152,6 +154,32 @@ export function StudioPage() {
       setError(
         generationError instanceof Error ? generationError.message : t('studio.generateFailed'),
       );
+    }
+  }
+
+  /**
+   * A failed clip, run again from what the record kept.
+   *
+   * The new run is a new generation rather than a revival of the old one: the failure stays
+   * in the list with its message, which is the only way to see that the second attempt was
+   * not the first. The form is left alone — someone retrying from the results column has not
+   * asked for their current draft to be overwritten.
+   */
+  async function regenerate(generation: GenerationDto) {
+    setError('');
+    setRegeneratingId(generation.id);
+    try {
+      const created = await createGeneration.mutateAsync(retryGenerationInput(generation));
+      setActiveId(created.id);
+      setSelectedId(created.id);
+    } catch (regenerateError) {
+      setError(
+        regenerateError instanceof Error
+          ? regenerateError.message
+          : t('generation.regenerateFailed'),
+      );
+    } finally {
+      setRegeneratingId(null);
     }
   }
 
@@ -257,7 +285,9 @@ export function StudioPage() {
             onRetry={() => void refetch()}
             selectedId={selectedId}
             deletingId={deletingId}
+            regeneratingId={regeneratingId}
             onOpen={(generation) => setSelectedId(generation.id)}
+            onRegenerate={(generation) => void regenerate(generation)}
             onToggleSave={(generation) => {
               void updateGeneration.mutateAsync({
                 id: generation.id,

@@ -44,6 +44,8 @@ const ru = {
   'generation.save': 'Сохранить',
   'generation.unsave': 'Убрать из сохранённых',
   'generation.delete': 'Удалить',
+  'generation.regenerate': 'Сгенерировать заново',
+  'generation.regenerateFailed': 'Не удалось запустить генерацию заново',
   'generation.deleteTitle': 'Удалить генерацию',
   'generation.deleteConfirm': 'Видео будет удалено безвозвратно. Продолжить?',
 
@@ -403,6 +405,8 @@ const uz: Dictionary = {
   'generation.save': 'Saqlash',
   'generation.unsave': 'Saqlanganlardan olib tashlash',
   'generation.delete': 'O‘chirish',
+  'generation.regenerate': 'Qaytadan generatsiya qilish',
+  'generation.regenerateFailed': 'Qaytadan generatsiyani boshlab bo‘lmadi',
   'generation.deleteTitle': 'Generatsiyani o‘chirish',
   'generation.deleteConfirm': 'Video butunlay o‘chiriladi. Davom etamizmi?',
 
@@ -759,6 +763,8 @@ const en: Dictionary = {
   'generation.save': 'Save',
   'generation.unsave': 'Remove from saved',
   'generation.delete': 'Delete',
+  'generation.regenerate': 'Generate again',
+  'generation.regenerateFailed': 'Could not start the generation again',
   'generation.deleteTitle': 'Delete generation',
   'generation.deleteConfirm': 'This video will be deleted permanently. Continue?',
 

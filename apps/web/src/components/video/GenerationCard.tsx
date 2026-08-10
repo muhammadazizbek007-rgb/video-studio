@@ -1,6 +1,6 @@
 import type { GenerationDto } from '@video-studio/shared';
 import { getVeoModel } from '@video-studio/shared';
-import { Film, Heart, Trash2 } from 'lucide-react';
+import { Film, Heart, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button, Card, IconButton, Modal } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -12,7 +12,10 @@ interface GenerationCardProps {
   onOpen?: (generation: GenerationDto) => void;
   onToggleSave?: (generation: GenerationDto) => void;
   onDelete?: (generation: GenerationDto) => void;
+  /** Runs the same prompt and settings again. Offered only on a generation that failed. */
+  onRegenerate?: (generation: GenerationDto) => void;
   isDeleting?: boolean;
+  isRegenerating?: boolean;
 }
 
 export function GenerationCard({
@@ -21,7 +24,9 @@ export function GenerationCard({
   onOpen,
   onToggleSave,
   onDelete,
+  onRegenerate,
   isDeleting = false,
+  isRegenerating = false,
 }: GenerationCardProps) {
   const { language, t } = useLanguage();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -79,6 +84,18 @@ export function GenerationCard({
           </>
         ) : null}
         <span className="ml-auto flex items-center gap-1">
+          {/* A clip that failed is worth another run more often than not — the reference
+              image was briefly unreachable, the model was busy — and rebuilding the prompt
+              and its settings by hand to find that out is the whole cost. */}
+          {generation.status === 'failed' && onRegenerate ? (
+            <IconButton
+              type="button"
+              label={t('generation.regenerate')}
+              icon={<RotateCcw />}
+              loading={isRegenerating}
+              onClick={() => onRegenerate(generation)}
+            />
+          ) : null}
           <IconButton
             type="button"
             label={generation.saved ? t('generation.unsave') : t('generation.save')}

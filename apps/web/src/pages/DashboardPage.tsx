@@ -1,9 +1,16 @@
+import type { GenerationDto } from '@video-studio/shared';
+import { retryGenerationInput } from '@video-studio/shared';
 import { Plus } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Skeleton } from '@/components/ui';
 import { GenerationGrid } from '@/components/video/GenerationGrid';
-import { useDeleteGeneration, useGenerations, useUpdateGeneration } from '@/hooks/useGenerations';
+import {
+  useCreateGeneration,
+  useDeleteGeneration,
+  useGenerations,
+  useUpdateGeneration,
+} from '@/hooks/useGenerations';
 import { useLanguage } from '@/i18n/LanguageContext';
 
 interface StatTileProps {
@@ -33,7 +40,32 @@ export function DashboardPage() {
     useGenerations();
   const updateGeneration = useUpdateGeneration();
   const deleteGeneration = useDeleteGeneration();
+  const createGeneration = useCreateGeneration();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  /**
+   * Runs a failed clip again and follows it into the studio, the same place opening a card
+   * leads — it is the only screen with the live status stream, so a retry started here would
+   * otherwise sit on a card that does not visibly move.
+   */
+  async function regenerate(generation: GenerationDto) {
+    setError('');
+    setRegeneratingId(generation.id);
+    try {
+      const created = await createGeneration.mutateAsync(retryGenerationInput(generation));
+      navigate(`/studio?generation=${created.id}`);
+    } catch (regenerateError) {
+      setError(
+        regenerateError instanceof Error
+          ? regenerateError.message
+          : t('generation.regenerateFailed'),
+      );
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
 
   const stats = useMemo(() => {
     let completed = 0;
@@ -77,13 +109,21 @@ export function DashboardPage() {
         <h2 id={recentHeadingId} className="text-lg font-semibold">
           {t('dashboard.recent')}
         </h2>
+
+        {error ? (
+          <p role="alert" className="text-sm opacity-80">
+            {error}
+          </p>
+        ) : null}
         <GenerationGrid
           generations={generations}
           isLoading={isLoading}
           isError={isError}
           onRetry={() => void refetch()}
           deletingId={deletingId}
+          regeneratingId={regeneratingId}
           onOpen={(generation) => navigate(`/studio?generation=${generation.id}`)}
+          onRegenerate={(generation) => void regenerate(generation)}
           onToggleSave={(generation) => {
             void updateGeneration.mutateAsync({
               id: generation.id,

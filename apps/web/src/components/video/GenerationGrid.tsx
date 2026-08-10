@@ -8,12 +8,15 @@ interface GenerationGridProps {
   generations: readonly GenerationDto[];
   isLoading?: boolean;
   isError?: boolean;
+  /** Retries loading the list. Running one failed generation again is `onRegenerate`. */
   onRetry?: () => void;
   selectedId?: string | null;
   deletingId?: string | null;
+  regeneratingId?: string | null;
   onOpen?: (generation: GenerationDto) => void;
   onToggleSave?: (generation: GenerationDto) => void;
   onDelete?: (generation: GenerationDto) => void;
+  onRegenerate?: (generation: GenerationDto) => void;
   emptyAction?: ReactNode;
   skeletonCount?: number;
 }
@@ -25,9 +28,11 @@ export function GenerationGrid({
   onRetry,
   selectedId = null,
   deletingId = null,
+  regeneratingId = null,
   onOpen,
   onToggleSave,
   onDelete,
+  onRegenerate,
   emptyAction,
   skeletonCount = 6,
 }: GenerationGridProps) {
@@ -85,9 +90,11 @@ export function GenerationGrid({
           generation={generation}
           selected={generation.id === selectedId}
           isDeleting={generation.id === deletingId}
+          isRegenerating={generation.id === regeneratingId}
           onOpen={onOpen}
           onToggleSave={onToggleSave}
           onDelete={onDelete}
+          onRegenerate={onRegenerate}
         />
       ))}
     </div>

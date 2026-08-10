@@ -451,3 +451,42 @@ describe('GenerationCard deletion', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 });
+
+describe('GenerationCard regeneration', () => {
+  const failed = generationFixture({
+    id: 'gen-failed',
+    status: 'failed',
+    prompt: 'кот в неоне',
+  });
+
+  it('offers another run on a clip that failed, and reports it without a confirmation', async () => {
+    const user = userEvent.setup();
+    const onRegenerate = vi.fn();
+    renderWithProviders(<GenerationCard generation={failed} onRegenerate={onRegenerate} />);
+
+    await user.click(screen.getByRole('button', { name: 'Сгенерировать заново' }));
+
+    expect(onRegenerate).toHaveBeenCalledWith(failed);
+  });
+
+  // Nothing failed, so there is nothing to run again — the button would only invite a
+  // duplicate of a clip the user already has.
+  it('stays away from a clip that completed', () => {
+    const completed = generationFixture({ id: 'gen-ok', status: 'completed' });
+    renderWithProviders(<GenerationCard generation={completed} onRegenerate={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Сгенерировать заново' })).toBeNull();
+  });
+
+  it('blocks a second click while the first run is still starting', async () => {
+    const user = userEvent.setup();
+    const onRegenerate = vi.fn();
+    renderWithProviders(
+      <GenerationCard generation={failed} onRegenerate={onRegenerate} isRegenerating />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Сгенерировать заново' }));
+
+    expect(onRegenerate).not.toHaveBeenCalled();
+  });
+});
