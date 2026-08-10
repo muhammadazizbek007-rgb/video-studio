@@ -26,24 +26,32 @@ export function isOptimisticGeneration(generation: GenerationDto): boolean {
 
 let optimisticCounter = 0;
 
+/**
+ * The placeholder card shown while the request is in flight.
+ *
+ * Mentions are resolved server-side, so the attached elements are not known yet — the card
+ * carries what the caller could see (the prompt, the settings, the opening frame) and is
+ * replaced wholesale by the real record the moment it arrives.
+ */
 function buildOptimisticGeneration(input: CreateGenerationInput): GenerationDto {
   optimisticCounter += 1;
   const now = new Date().toISOString();
+  const firstFrame = input.firstFrameImageUrl ?? input.referenceImageUrls?.[0];
   return {
     id: `${OPTIMISTIC_ID_PREFIX}${now}-${optimisticCounter}`,
     userId: '',
     prompt: input.prompt,
     modelId: input.modelId,
-    mode: input.mode,
+    mode: input.mode ?? (firstFrame ? 'image_to_video' : 'text_to_video'),
     aspectRatio: input.aspectRatio,
     duration: input.duration,
     stylePreset: input.stylePreset,
     cameraMotion: input.cameraMotion,
     status: 'pending',
     saved: false,
-    referenceImageUrls: input.referenceImageUrls ?? [],
-    elements: input.elements ?? [],
-    referenceCount: input.referenceImageUrls?.length ?? 0,
+    referenceImageUrls: firstFrame ? [firstFrame] : [],
+    elements: [],
+    referenceCount: firstFrame ? 1 : 0,
     createdAt: now,
     updatedAt: now,
   };

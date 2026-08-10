@@ -14,6 +14,7 @@ import { ImageResults } from '@/components/cinema/ImageResults';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { MediaPicker } from '@/components/media/MediaPicker';
 import { IconButton, Spinner, Surface } from '@/components/ui';
+import { useElements } from '@/hooks/useElements';
 import {
   useCreateImageGeneration,
   useDeleteImageGeneration,
@@ -93,6 +94,10 @@ export function CinemaStudioPage() {
   const deleteImage = useDeleteImageGeneration();
   const images = useMemo(() => imageLibrary.data ?? [], [imageLibrary.data]);
   const isImaging = createImage.isPending;
+
+  // Feeds the `@` popup in the prompt bar; the server resolves the mentions again when the
+  // segment is generated, so this list only decides what can be picked, never what attaches.
+  const { data: elements } = useElements();
 
   const [mode, setMode] = useState<CinemaInputMode>(readStoredMode);
   const [imageModelId, setImageModelId] = useState<string>(readStoredImageModel);
@@ -479,6 +484,7 @@ export function CinemaStudioPage() {
         onModeChange={setMode}
         prompt={prompt}
         onPromptChange={setPrompt}
+        elements={elements ?? []}
         model={model}
         modelId={storyboard.modelId}
         onModelChange={(modelId) => void updateSettings({ modelId }).catch(() => undefined)}

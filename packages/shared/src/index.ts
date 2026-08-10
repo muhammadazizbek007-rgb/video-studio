@@ -1,5 +1,15 @@
 export { buildHandle, ELEMENT_CATEGORY_LABELS, extractMentions } from './helpers.js';
 
+export type { FramePolicy, ResolvedMentions, ResolveMentionsInput } from './mentions.js';
+export {
+  assetReferenceCapacity,
+  extractMentionTokens,
+  findMentionedElements,
+  findUnknownHandles,
+  MAX_ASSET_REFERENCES,
+  resolveMentions,
+} from './mentions.js';
+
 export type { ImageModelSpec, VeoModelSpec } from './models.js';
 export {
   ASPECT_RATIOS,

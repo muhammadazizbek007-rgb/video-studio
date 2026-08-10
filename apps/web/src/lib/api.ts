@@ -63,6 +63,8 @@ const veoModelSpecSchema = z.object({
   supportsImageToVideo: z.boolean(),
   supportsAudio: z.boolean(),
   supportsLastFrame: z.boolean(),
+  supportsReferenceImages: z.boolean(),
+  maxAssetReferences: z.number().int().min(0),
   maxResolution: z.string(),
 });
 

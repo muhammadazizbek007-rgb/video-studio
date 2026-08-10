@@ -292,17 +292,24 @@ export async function generateSegment(
   const firstFrame = segment.firstFrameUrl;
   const lastFrame = segment.lastFrameUrl;
 
-  const generation = await createGeneration(user, {
-    prompt,
-    modelId: doc.modelId,
-    mode: firstFrame ? 'image_to_video' : 'text_to_video',
-    aspectRatio: doc.aspectRatio,
-    duration: doc.duration,
-    stylePreset: doc.stylePreset,
-    cameraMotion: doc.cameraMotion,
-    ...(firstFrame ? { referenceImageUrls: [firstFrame] } : {}),
-    ...(spec.supportsLastFrame && lastFrame ? { lastFrameImageUrl: lastFrame } : {}),
-  });
+  // The prompt may mention elements — createGeneration resolves them against the account's
+  // library, so a character stays the same person from segment to segment. `frame-wins`
+  // because this segment's opening frame is the previous one's closing frame: an element
+  // photo may not take its place, or the cut visibly jumps.
+  const generation = await createGeneration(
+    user,
+    {
+      prompt,
+      modelId: doc.modelId,
+      aspectRatio: doc.aspectRatio,
+      duration: doc.duration,
+      stylePreset: doc.stylePreset,
+      cameraMotion: doc.cameraMotion,
+      ...(firstFrame ? { firstFrameImageUrl: firstFrame } : {}),
+      ...(spec.supportsLastFrame && lastFrame ? { lastFrameImageUrl: lastFrame } : {}),
+    },
+    { framePolicy: 'frame-wins' },
+  );
 
   generation.storyboardId = doc._id;
   generation.segmentIndex = index;

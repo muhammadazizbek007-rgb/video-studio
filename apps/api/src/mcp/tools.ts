@@ -5,7 +5,6 @@ import type {
   CameraMotion,
   CreateGenerationInput,
   VideoAspectRatio,
-  VideoGenerationMode,
   VideoStylePreset,
 } from '@video-studio/shared';
 import {
@@ -43,6 +42,7 @@ import {
   requireOwned,
   syncGeneration,
 } from '../services/generations.js';
+import { absoluteMediaUrl } from '../storage/mediaUrl.js';
 import { generateImage } from '../vertex/imagen.js';
 
 /**
@@ -126,19 +126,10 @@ function jsonResult(payload: unknown): CallToolResult {
 }
 
 /**
- * Turns a stored media path into something an off-site caller can actually fetch.
- *
- * `MEDIA_PUBLIC_BASE_URL` defaults to `/media`, which is right for the web app — it shares
- * an origin with the API — and useless for Claude, which is not on this host. A relative
- * `video_url` cannot be opened by the user, and a relative `image_url` handed back as a
- * reference frame fails inside Veo, where it is fetched rather than resolved.
+ * Turns a stored media path into something an off-site caller can actually fetch: a relative
+ * `video_url` cannot be opened by the user of a Claude that is not on this host.
  */
-function publicMediaUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  if (/^https?:\/\//i.test(url)) return url;
-  const base = getEnv().apiPublicUrl.replace(/\/+$/, '');
-  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`;
-}
+const publicMediaUrl = absoluteMediaUrl;
 
 /**
  * Tool faults come back as MCP tool errors carrying the REST error envelope, so an MCP
@@ -191,13 +182,13 @@ function summariseGeneration(doc: GenerationDocument): Record<string, unknown> {
 
 interface StartVideoParams {
   prompt: string;
-  enrichedPrompt?: string;
   model?: string;
   aspectRatio?: VideoAspectRatio;
   duration?: number;
   stylePreset?: VideoStylePreset;
   cameraMotion?: CameraMotion;
-  referenceImageUrls: string[];
+  /** An opening frame, when the caller has one. Element photos arrive as `@mentions`. */
+  firstFrameImageUrl?: string;
 }
 
 /**
@@ -235,29 +226,16 @@ async function startVideo(user: AuthUser, params: StartVideoParams): Promise<Gen
     );
   }
 
-  // Veo *fetches* a reference frame rather than resolving it against this host, so a
-  // relative `/media/...` path — which is exactly what our own image tools hand back —
-  // would fail inside the provider. Absolutising at the single door means every caller,
-  // including a Claude that pasted a URL from an earlier tool result, is safe.
-  const referenceImageUrls = params.referenceImageUrls
-    .map((url) => publicMediaUrl(url))
-    .filter((url): url is string => url !== null);
-
-  const mode: VideoGenerationMode =
-    referenceImageUrls.length > 0 ? 'image_to_video' : 'text_to_video';
-
   const input: CreateGenerationInput = {
     prompt: params.prompt,
-    enrichedPrompt: params.enrichedPrompt,
     modelId: spec.id,
-    mode,
     aspectRatio: params.aspectRatio ?? spec.aspectRatios[0] ?? '16:9',
     // Snapped rather than rejected: an MCP client picking 5s for an 4/6/8s model should
     // get a video, not a schema lecture.
     duration: resolveDuration(spec, params.duration ?? spec.defaultDuration),
     stylePreset: params.stylePreset ?? 'Cinematic',
     cameraMotion: params.cameraMotion ?? 'Static',
-    referenceImageUrls,
+    ...(params.firstFrameImageUrl ? { firstFrameImageUrl: params.firstFrameImageUrl } : {}),
   };
 
   await assertGenerationBudget(user);
@@ -309,9 +287,13 @@ function registerVideoTools(server: McpServer, user: AuthUser): void {
     'generate_video',
     {
       description:
-        'Generate a video from a text prompt, optionally starting from a reference image, using Google Veo.',
+        'Generate a video from a text prompt, optionally starting from a reference image, using Google Veo. Mention a saved element by its handle (for example "@Muhammad walks into @Cafe") and its saved photo is attached automatically, so the character or location looks the same as in every other clip. Call show_reference_elements to see the handles this account has.',
       inputSchema: {
-        prompt: z.string().min(1).max(8000).describe('What should happen in the video'),
+        prompt: z
+          .string()
+          .min(1)
+          .max(8000)
+          .describe('What should happen in the video; may mention saved elements as @handle'),
         model: z
           .string()
           .optional()
@@ -342,7 +324,7 @@ function registerVideoTools(server: McpServer, user: AuthUser): void {
           duration: args.duration,
           stylePreset: args.style,
           cameraMotion: args.camera_motion,
-          referenceImageUrls: args.reference_image_url ? [args.reference_image_url] : [],
+          ...(args.reference_image_url ? { firstFrameImageUrl: args.reference_image_url } : {}),
         });
 
         return {
@@ -442,12 +424,11 @@ function registerVideoTools(server: McpServer, user: AuthUser): void {
         });
 
         const doc = await startVideo(user, {
-          prompt: args.prompt,
-          enrichedPrompt: `${args.prompt}. The subject stays consistent with the opening frame and the background stays stable.`,
+          prompt: `${args.prompt}. The subject stays consistent with the opening frame and the background stays stable.`,
           model: args.model,
           aspectRatio,
           duration: args.duration,
-          referenceImageUrls: [reference.imageUrl],
+          firstFrameImageUrl: reference.imageUrl,
         });
 
         return {

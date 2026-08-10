@@ -65,6 +65,22 @@ const ru = {
   'studio.mentions': 'Упомянутые элементы',
   'studio.mentionHint': 'Упомяните элемент через @ — он попадёт в промпт',
 
+  'mentions.attachedTitle': 'Что уйдёт в модель',
+  'mentions.slots': 'Фото-слоты: {used} из {total}',
+  'mentions.rolePhoto': 'по фото',
+  'mentions.roleText': 'только описанием',
+  'mentions.noPhoto': 'у элемента нет фото',
+  'mentions.noSlot': 'слоты заняты',
+  'mentions.unknown': 'Не найдены в библиотеке: {handles}',
+  'mentions.frameDropped':
+    'Загруженный первый кадр не используется: слоты заняты упомянутыми элементами',
+  'mentions.modelNoReferences': 'Эта модель не принимает фото элементов — они уйдут описанием',
+  'mentions.empty': 'Элементы не упомянуты',
+  'mentions.category.character': 'Персонажи',
+  'mentions.category.location': 'Локации',
+  'mentions.category.prop': 'Реквизит',
+  'mentions.category.general': 'Общие',
+
   'prompt.enhance': 'Улучшить промпт',
   'prompt.enrichedTitle': 'Улучшенный промпт',
   'prompt.enrichFailed': 'Не удалось улучшить промпт',
@@ -408,6 +424,23 @@ const uz: Dictionary = {
   'studio.mentions': 'Eslangan elementlar',
   'studio.mentionHint': 'Elementni @ bilan eslang — u promptga tushadi',
 
+  'mentions.attachedTitle': 'Modelga nima ketadi',
+  'mentions.slots': 'Foto slotlar: {used} / {total}',
+  'mentions.rolePhoto': 'foto orqali',
+  'mentions.roleText': 'faqat tavsif bilan',
+  'mentions.noPhoto': 'elementda foto yo‘q',
+  'mentions.noSlot': 'slotlar band',
+  'mentions.unknown': 'Kutubxonada topilmadi: {handles}',
+  'mentions.frameDropped':
+    'Yuklangan birinchi kadr ishlatilmaydi: slotlarni eslangan elementlar egalladi',
+  'mentions.modelNoReferences':
+    'Bu model element fotolarini qabul qilmaydi — tavsif sifatida ketadi',
+  'mentions.empty': 'Element eslanmagan',
+  'mentions.category.character': 'Personajlar',
+  'mentions.category.location': 'Lokatsiyalar',
+  'mentions.category.prop': 'Rekvizit',
+  'mentions.category.general': 'Umumiy',
+
   'prompt.enhance': 'Promptni yaxshilash',
   'prompt.enrichedTitle': 'Yaxshilangan prompt',
   'prompt.enrichFailed': 'Promptni yaxshilab bo‘lmadi',
@@ -746,6 +779,23 @@ const en: Dictionary = {
   'theme.toLight': 'Light theme',
   'studio.mentions': 'Mentioned elements',
   'studio.mentionHint': 'Mention an element with @ to pull it into the prompt',
+
+  'mentions.attachedTitle': 'What the model receives',
+  'mentions.slots': 'Photo slots: {used} of {total}',
+  'mentions.rolePhoto': 'as a photo',
+  'mentions.roleText': 'as a description only',
+  'mentions.noPhoto': 'the element has no photo',
+  'mentions.noSlot': 'all slots taken',
+  'mentions.unknown': 'Not in your library: {handles}',
+  'mentions.frameDropped':
+    'The uploaded first frame is not used: the mentioned elements took the slots',
+  'mentions.modelNoReferences':
+    'This model takes no element photos — they travel as descriptions instead',
+  'mentions.empty': 'No elements mentioned',
+  'mentions.category.character': 'Characters',
+  'mentions.category.location': 'Locations',
+  'mentions.category.prop': 'Props',
+  'mentions.category.general': 'General',
 
   'prompt.enhance': 'Enhance prompt',
   'prompt.enrichedTitle': 'Enhanced prompt',

@@ -207,59 +207,39 @@ const ENRICHMENT_SYSTEM_PROMPT = [
   'no headings, no markdown, no quotes around the result.',
   'Never invent dialogue and never describe on-screen text, captions or logos.',
   'Do not mention camera movement or visual style — those are added separately.',
-  'Preserve every @ImageN token exactly as written; they name the supplied reference images.',
+  'The idea may contain @handle tokens naming the user’s saved characters, locations and',
+  'props. Keep every @handle exactly as written, in the same role it had — never translate,',
+  'rename, expand or drop one, and never invent a handle that was not in the idea.',
   `Answer with the rewritten prompt only, under ${MAX_ENRICHED_CHARS} characters.`,
 ].join(' ');
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /**
- * Elements are referenced in the prompt by handle ("@Luna"). Handles mean nothing to Veo,
- * so each one is replaced: an element carrying a reference image becomes the @ImageN slot
- * it occupies, and every other element becomes its description.
+ * Tells the rewriter who each handle is, without spending the handle itself.
  *
- * Replacements are supplied as functions because a description containing "$&" would
- * otherwise be treated as a replacement pattern.
+ * The enriched text goes straight back into the user's prompt field, so it has to come back
+ * still saying `@Мухаммад`: that token is the link to the saved photo, and resolving it here
+ * would leave the user holding a prompt whose references silently detached.
  */
-function foldElements(prompt: string, elements: ElementRef[] | undefined): string {
-  if (!elements || elements.length === 0) return prompt;
+function describeElements(elements: ElementRef[] | undefined): string {
+  if (!elements || elements.length === 0) return '';
 
-  const visual: ElementRef[] = [];
-  const textual: ElementRef[] = [];
-  for (const element of elements) {
-    if (element.role === 'visual' && element.imageIndex !== undefined) visual.push(element);
-    else textual.push(element);
-  }
-
-  let body = prompt;
-  for (const ref of visual) {
-    const slot = `@Image${ref.imageIndex}`;
-    body = body.replace(new RegExp(escapeRegex(ref.handle), 'gi'), () => slot);
-  }
-  for (const ref of textual) {
-    const replacement = ref.description?.trim() || ref.name;
-    body = body.replace(new RegExp(escapeRegex(ref.handle), 'gi'), () => replacement);
-  }
-
-  const header = visual
-    .map((ref) => {
-      const description = ref.description?.trim();
-      return `@Image${ref.imageIndex} is ${ref.name}${description ? ` — ${description}` : ''}.`;
-    })
-    .join(' ');
-
-  return header ? `${header} ${body}` : body;
+  const lines = elements.map((ref) => {
+    const description = ref.description?.trim();
+    return `${ref.handle} — ${ref.name}${description ? `, ${description}` : ''} (${ref.category})`;
+  });
+  return `Saved elements mentioned in the idea (keep these handles verbatim):\n${lines.join('\n')}`;
 }
 
-function buildEnrichmentRequest(input: EnrichPromptInput, folded: string): string {
+function buildEnrichmentRequest(input: EnrichPromptInput): string {
   return [
-    `Idea: ${folded}`,
+    `Idea: ${input.prompt}`,
+    describeElements(input.elements),
     `Generation mode: ${input.mode}`,
     `Visual style preset: ${input.stylePreset}`,
     `Camera motion preset: ${input.cameraMotion}`,
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 let cachedClient: { apiKey: string; anthropic: Anthropic } | null = null;
@@ -272,36 +252,49 @@ function getAnthropic(apiKey: string): Anthropic {
 }
 
 /**
- * Enrichment is a convenience, never a gate: any failure returns the locally folded prompt
- * so a generation is still started with something usable.
+ * A rewrite that lost a handle lost a reference image with it, which is worse than not
+ * rewriting at all — so the original prompt is kept instead.
+ */
+function keepsEveryHandle(enriched: string, elements: ElementRef[] | undefined): boolean {
+  if (!elements || elements.length === 0) return true;
+  const lower = enriched.toLowerCase();
+  return elements.every((ref) => lower.includes(ref.handle.toLowerCase()));
+}
+
+/**
+ * Enrichment is a convenience, never a gate: any failure returns the prompt as typed, so a
+ * generation is still started with something usable.
  */
 export async function enrichPrompt(input: EnrichPromptInput): Promise<string> {
   const { anthropicApiKey } = getEnv();
   if (!anthropicApiKey) return input.prompt;
-
-  const folded = foldElements(input.prompt, input.elements);
 
   try {
     const message = await getAnthropic(anthropicApiKey).messages.create({
       model: ENRICHMENT_MODEL,
       max_tokens: ENRICHMENT_MAX_TOKENS,
       system: ENRICHMENT_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildEnrichmentRequest(input, folded) }],
+      messages: [{ role: 'user', content: buildEnrichmentRequest(input) }],
     });
 
     // Widened because older SDK releases do not list 'refusal' in the stop-reason union.
     const stopReason: string | null = message.stop_reason;
-    if (stopReason === 'refusal') return folded;
+    if (stopReason === 'refusal') return input.prompt;
 
     const parts: string[] = [];
     for (const block of message.content) {
       if (block.type === 'text') parts.push(block.text);
     }
 
-    const enriched = parts.join('\n').trim();
-    return enriched === '' ? folded : enriched.slice(0, MAX_ENRICHED_CHARS);
+    const enriched = parts.join('\n').trim().slice(0, MAX_ENRICHED_CHARS);
+    if (enriched === '') return input.prompt;
+    if (!keepsEveryHandle(enriched, input.elements)) {
+      logger.warn('Prompt enrichment dropped an element handle; keeping the original prompt.');
+      return input.prompt;
+    }
+    return enriched;
   } catch (err) {
     logger.warn({ err }, 'Prompt enrichment failed; using the unenriched prompt.');
-    return folded;
+    return input.prompt;
   }
 }

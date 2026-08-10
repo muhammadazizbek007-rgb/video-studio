@@ -8,6 +8,7 @@ import { getEnv } from '../env.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
+import { storageKeyFromUrl } from '../storage/mediaUrl.js';
 
 const run = promisify(execFile);
 
@@ -37,22 +38,6 @@ export function isStitchingAvailable(): Promise<boolean> {
 
 export function resetStitchingProbe(): void {
   availability = null;
-}
-
-/**
- * Turns a media URL back into the storage key it was built from.
- *
- * Only URLs this deployment served can be mapped, which is the point: a key is what
- * unlocks the filesystem shortcut, and anything we did not serve has to be downloaded
- * like any other remote file.
- */
-export function storageKeyFromUrl(url: string): string | null {
-  const base = getEnv().mediaPublicBaseUrl.replace(/\/+$/, '');
-  const withoutOrigin = url.replace(/^https?:\/\/[^/]+/, '');
-  const prefix = `${base}/`;
-  if (!withoutOrigin.startsWith(prefix)) return null;
-  const key = withoutOrigin.slice(prefix.length).split('?')[0] ?? '';
-  return key === '' ? null : decodeURIComponent(key);
 }
 
 async function materialise(url: string, directory: string, index: number): Promise<string> {

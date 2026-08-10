@@ -152,6 +152,82 @@ describe('generation routes', () => {
     expect(typeof created.createdAt).toBe('string');
   });
 
+  /**
+   * The point of the whole element library: writing `@Мухаммад` has to end up as that saved
+   * photo travelling with the request, decided server-side rather than trusted from the
+   * client.
+   */
+  it('resolves an @mention against the account library and attaches its photo', async () => {
+    const { cookie } = await signIn('mentions@example.com');
+
+    const element = await app.inject({
+      method: 'POST',
+      url: '/api/elements',
+      headers: { cookie },
+      payload: {
+        name: 'Мухаммад',
+        category: 'character',
+        description: 'молодой мужчина в серой худи',
+        imageUrl: '/media/uploads/mentions/muhammad.jpg',
+      },
+    });
+    expect(element.statusCode).toBe(200);
+    const { handle } = parse<{ handle: string }>(element.body);
+    expect(handle).toBe('@Мухаммад');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/generations',
+      headers: { cookie },
+      payload: { ...CREATE_PAYLOAD, prompt: `${handle} пьёт чай у окна` },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const created = parse<GenerationDto>(response.body);
+    expect(created.referenceImageUrls).toEqual(['/media/uploads/mentions/muhammad.jpg']);
+    expect(created.mode).toBe('reference_to_video');
+    expect(created.elements).toHaveLength(1);
+    expect(created.elements[0]).toMatchObject({
+      handle: '@Мухаммад',
+      role: 'visual',
+      imageIndex: 1,
+    });
+    // The handle itself never reaches Veo — it is replaced by the name, introduced by a
+    // sentence tying it to the reference image.
+    expect(created.enrichedPrompt).toBe(
+      'Reference image 1 shows the character Мухаммад — молодой мужчина в серой худи. Мухаммад пьёт чай у окна',
+    );
+  });
+
+  it('ignores an element handle belonging to another account', async () => {
+    const owner = await signIn('owner-of-element@example.com');
+    const stranger = await signIn('stranger@example.com');
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/elements',
+      headers: { cookie: owner.cookie },
+      payload: {
+        name: 'Secret',
+        category: 'character',
+        imageUrl: '/media/uploads/owner/secret.jpg',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/generations',
+      headers: { cookie: stranger.cookie },
+      payload: { ...CREATE_PAYLOAD, prompt: '@Secret walks in' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const created = parse<GenerationDto>(response.body);
+    expect(created.referenceImageUrls).toEqual([]);
+    expect(created.elements).toEqual([]);
+    expect(created.mode).toBe('text_to_video');
+  });
+
   it('rejects a signed-out caller', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/generations' });
 

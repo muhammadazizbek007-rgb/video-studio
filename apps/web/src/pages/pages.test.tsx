@@ -143,6 +143,19 @@ const AVA: ElementDto = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
+const CAFE: ElementDto = {
+  id: 'el-cafe',
+  userId: 'user-1',
+  name: 'Кафе',
+  handle: '@Cafe',
+  category: 'location',
+  description: 'неоновое кафе',
+  imageUrl: '/media/uploads/user-1/cafe.jpg',
+  pinned: false,
+  createdAt: '2026-01-02T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
+
 /** The provider stack App.tsx actually mounts: query client → language → router. */
 function renderWithProviders(ui: ReactElement, route = '/') {
   const queryClient = new QueryClient({
@@ -344,6 +357,57 @@ describe('PromptComposer mentions', () => {
 
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(textarea).toHaveValue('Сцена @av');
+  });
+
+  // Which category an element belongs to is the thing being chosen between, so the popup
+  // says it rather than leaving a bare list of names.
+  it('groups the suggestions under their category, characters first', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PromptHarness elements={[CAFE, AVA]} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Промпт' }), 'Сцена @');
+
+    const listbox = await screen.findByRole('listbox', { name: 'Упомянутые элементы' });
+    expect(within(listbox).getByText('Персонажи')).toBeInTheDocument();
+    expect(within(listbox).getByText('Локации')).toBeInTheDocument();
+
+    const options = within(listbox).getAllByRole('option');
+    expect(options[0]).toHaveTextContent('@Ava');
+    expect(options[1]).toHaveTextContent('@Cafe');
+  });
+
+  // A mention that resolves to nothing must not look the same as one that attached a photo.
+  it('matches by name as well as by handle', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PromptHarness elements={[AVA, CAFE]} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Промпт' }), 'Сцена @Кафе');
+
+    const listbox = await screen.findByRole('listbox', { name: 'Упомянутые элементы' });
+    const options = within(listbox).getAllByRole('option');
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent('@Cafe');
+  });
+});
+
+describe('StudioPage attached elements', () => {
+  it('shows what a mention attaches, and warns about a handle it cannot resolve', async () => {
+    const user = userEvent.setup();
+    elementsMock = [AVA, CAFE];
+    renderWithProviders(<StudioPage />, '/studio');
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Промпт' }),
+      '@Cafe вечером, @Ava и @Ghost',
+    );
+
+    const panel = await screen.findByTestId('attached-elements');
+    // The location has a photo and takes the only slot in use; Ава has none, so she can
+    // only travel as words — and the panel has to say which is which.
+    expect(within(panel).getByText('Фото-слоты: 1 из 3')).toBeInTheDocument();
+    expect(within(panel).getByText(/Локации · по фото/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Персонажи · только описанием/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Не найдены в библиотеке: @Ghost/)).toBeInTheDocument();
   });
 });
 

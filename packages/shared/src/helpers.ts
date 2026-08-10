@@ -1,7 +1,12 @@
 import type { VideoElementCategory } from './types.js';
 
-const HANDLE_STRIP = /[^a-zA-Z0-9_а-яёА-ЯЁ]/g;
-const MENTION_PATTERN = /@[\wа-яёА-ЯЁ]+/g;
+/**
+ * A handle keeps letters, digits and underscores in *any* script. An ASCII-only rule silently
+ * mangled every non-Latin name — `Mustaqillik oʻzbek` and `Мұхаммед` alike — into something
+ * the user never typed and could no longer mention.
+ */
+const HANDLE_STRIP = /[^\p{L}\p{N}_]/gu;
+const MENTION_PATTERN = /@[\p{L}\p{N}_]+/gu;
 
 export function buildHandle(name: string): string {
   const clean = name.trim().replace(/\s+/g, '_').replace(HANDLE_STRIP, '');

@@ -278,9 +278,9 @@ describe('enrichPrompt', () => {
     );
   });
 
-  it('folds element handles into the text sent to Claude', async () => {
+  it('sends the handles verbatim and describes who each one is', async () => {
     state.anthropicApiKey = 'test-key';
-    state.create.mockResolvedValue(textReply('enriched'));
+    state.create.mockResolvedValue(textReply('@Luna walks into @School at dusk'));
 
     await enrichPrompt(
       enrichInput({ prompt: '@Luna walks into @School', elements: [LUNA, SCHOOL] }),
@@ -288,18 +288,40 @@ describe('enrichPrompt', () => {
 
     const request = state.create.mock.calls[0]?.[0] as { messages: [{ content: string }] };
     const sent = request.messages[0].content;
-    expect(sent).toContain('@Image1 is Luna — young curly-haired girl in an orange hoodie.');
-    expect(sent).toContain('@Image1 walks into modern red brick building');
+    // The handle is the link back to the saved photo, so it travels intact and the
+    // description rides alongside it rather than replacing it.
+    expect(sent).toContain('Idea: @Luna walks into @School');
+    expect(sent).toContain('@Luna — Luna, young curly-haired girl in an orange hoodie');
+    expect(sent).toContain('@School — School, modern red brick building');
     expect(sent).toContain('Camera motion preset: Pan');
   });
 
-  it('falls back to the folded prompt when the SDK throws', async () => {
+  it('keeps a rewrite that preserved every handle', async () => {
+    state.anthropicApiKey = 'test-key';
+    state.create.mockResolvedValue(textReply('@Luna waves from the doorway of @School'));
+
+    await expect(
+      enrichPrompt(enrichInput({ prompt: '@Luna waves at @School', elements: [LUNA, SCHOOL] })),
+    ).resolves.toBe('@Luna waves from the doorway of @School');
+  });
+
+  // A dropped handle is a dropped reference image, which is worse than no rewrite at all.
+  it('discards a rewrite that lost a handle', async () => {
+    state.anthropicApiKey = 'test-key';
+    state.create.mockResolvedValue(textReply('A curly-haired girl waves outside a red building'));
+
+    await expect(
+      enrichPrompt(enrichInput({ prompt: '@Luna waves', elements: [LUNA] })),
+    ).resolves.toBe('@Luna waves');
+  });
+
+  it('falls back to the prompt as typed when the SDK throws', async () => {
     state.anthropicApiKey = 'test-key';
     state.create.mockRejectedValue(new Error('rate limited'));
 
     await expect(
       enrichPrompt(enrichInput({ prompt: '@Luna waves', elements: [LUNA] })),
-    ).resolves.toBe('@Image1 is Luna — young curly-haired girl in an orange hoodie. @Image1 waves');
+    ).resolves.toBe('@Luna waves');
   });
 
   it('falls back when Claude answers with no usable text', async () => {

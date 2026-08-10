@@ -70,18 +70,30 @@ export const generationDtoSchema = z.object({
 });
 export type GenerationDto = z.infer<typeof generationDtoSchema>;
 
+/**
+ * What a caller asks for. Note what is *not* here: which elements are attached, and which
+ * images they contribute. `@mentions` live in the prompt, and the server resolves them
+ * against the account's own library — so a prompt sent from the studio, a storyboard or an
+ * MCP client all attach the same references. A client cannot claim an element it does not
+ * own, and cannot forget to attach one it did mention.
+ */
 export const createGenerationSchema = z.object({
   prompt: z.string().min(1).max(8000),
   modelId: z.string().min(1),
-  mode: videoGenerationModeSchema,
+  /** Advisory: the server derives the real mode from what the prompt resolves to. */
+  mode: videoGenerationModeSchema.optional(),
   aspectRatio: videoAspectRatioSchema,
   duration: videoDurationSchema,
   stylePreset: videoStylePresetSchema,
   cameraMotion: cameraMotionSchema,
-  enrichedPrompt: z.string().max(16000).optional(),
-  referenceImageUrls: z.array(z.string().min(1)).max(3).optional(),
+  /** The opening frame the user uploaded by hand. */
+  firstFrameImageUrl: z.string().min(1).optional(),
   lastFrameImageUrl: z.string().min(1).optional(),
-  elements: z.array(elementRefSchema).optional(),
+  /**
+   * Older clients sent the whole reference list; only the first entry was ever the opening
+   * frame, so that is all this still means. Accepted so a stale bundle keeps working.
+   */
+  referenceImageUrls: z.array(z.string().min(1)).max(3).optional(),
 });
 export type CreateGenerationInput = z.infer<typeof createGenerationSchema>;
 

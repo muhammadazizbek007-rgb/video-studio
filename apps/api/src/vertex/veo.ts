@@ -1,9 +1,17 @@
+import { readFile } from 'node:fs/promises';
+import { extname } from 'node:path';
 import type { VeoModelSpec } from '@video-studio/shared';
-import { requireVeoModel, resolveAspectRatio, resolveDuration } from '@video-studio/shared';
+import {
+  assetReferenceCapacity,
+  requireVeoModel,
+  resolveAspectRatio,
+  resolveDuration,
+} from '@video-studio/shared';
 import { getEnv } from '../env.js';
 import { ApiError } from '../errors.js';
 import { buildNegativePrompt, buildVeoPrompt } from '../prompt.js';
 import { getStorage } from '../storage/index.js';
+import { absoluteMediaUrl, storageKeyFromUrl } from '../storage/mediaUrl.js';
 import { callVertex, getAccessToken } from './client.js';
 import { checkFakeVeoOperation, startFakeVeoOperation } from './fake.js';
 
@@ -23,7 +31,13 @@ export interface VeoStartInput {
   duration: number;
   stylePreset: string;
   cameraMotion: string;
-  referenceImageUrls?: string[];
+  /** The opening frame Veo animates. One image, and the video literally starts on it. */
+  firstFrameImageUrl?: string;
+  /**
+   * Photos of mentioned elements. These are not frames of the video: they tell Veo what a
+   * character, location or prop looks like, and the model composes its own shot from them.
+   */
+  assetReferenceUrls?: string[];
   lastFrameImageUrl?: string;
 }
 
@@ -137,6 +151,45 @@ async function downloadImage(url: string, what: string): Promise<InlineImage> {
   return { bytesBase64Encoded: Buffer.concat(chunks).toString('base64'), mimeType: contentType };
 }
 
+const EXTENSION_MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+});
+
+/**
+ * Reads an image this deployment stored, straight off the disk.
+ *
+ * `MEDIA_PUBLIC_BASE_URL` is `/media` — right for the browser, which shares an origin with
+ * the API, and fatal here: `fetch('/media/...')` is a parse error in Node, not a relative
+ * request. Every element photo and uploaded frame is one of ours, so the common case never
+ * touches the network at all; anything we did not serve falls through to a real download.
+ */
+async function readStoredImage(url: string): Promise<InlineImage | null> {
+  const key = storageKeyFromUrl(url);
+  if (!key) return null;
+
+  const path = getStorage().localPath?.(key);
+  if (!path) return null;
+
+  const data = await readFile(path).catch(() => null);
+  if (!data) return null;
+
+  if (data.byteLength > MAX_IMAGE_BYTES) {
+    throw new ApiError(
+      'invalid-argument',
+      `A reference image exceeds the ${MAX_IMAGE_BYTES} byte limit.`,
+    );
+  }
+
+  return {
+    bytesBase64Encoded: data.toString('base64'),
+    mimeType: EXTENSION_MIME_TYPES[extname(key).toLowerCase()] ?? DEFAULT_IMAGE_MIME_TYPE,
+  };
+}
+
 /** Veo accepts reference images only as inline base64, never as a URL. */
 async function toInlineImage(imageUrl: string, what: string): Promise<InlineImage> {
   const url = imageUrl.trim();
@@ -161,30 +214,54 @@ async function toInlineImage(imageUrl: string, what: string): Promise<InlineImag
     return { bytesBase64Encoded, mimeType };
   }
 
-  return downloadImage(url, what);
+  const stored = await readStoredImage(url);
+  if (stored) return stored;
+
+  const absolute = absoluteMediaUrl(url);
+  if (!absolute) {
+    throw new ApiError('invalid-argument', `The ${what} has no usable location.`);
+  }
+  return downloadImage(absolute, what);
 }
 
 async function buildInstance(
   input: VeoStartInput,
   spec: VeoModelSpec,
 ): Promise<Record<string, unknown>> {
-  const referenceImageUrl = input.referenceImageUrls?.[0];
+  const firstFrameUrl = input.firstFrameImageUrl?.trim() || undefined;
 
   const instance: Record<string, unknown> = {
     prompt: buildVeoPrompt({
       prompt: input.prompt,
       stylePreset: input.stylePreset,
       cameraMotion: input.cameraMotion,
-      hasReferenceImage: Boolean(referenceImageUrl),
+      hasReferenceImage: Boolean(firstFrameUrl),
       supportsAudio: spec.supportsAudio,
     }),
   };
 
-  if (referenceImageUrl) {
+  if (firstFrameUrl) {
     if (!spec.supportsImageToVideo) {
       throw new ApiError('invalid-argument', `${spec.id} does not support image-to-video.`);
     }
-    instance.image = await toInlineImage(referenceImageUrl, 'reference image');
+    instance.image = await toInlineImage(firstFrameUrl, 'first frame image');
+  }
+
+  // Asset references are what makes "@Мухаммад" mean something: Veo is handed the saved
+  // photo and told to keep that subject's appearance. The cap is the model's, not ours —
+  // sending a fourth is rejected outright rather than ignored.
+  const assetUrls = (input.assetReferenceUrls ?? [])
+    .map((url) => url.trim())
+    .filter((url) => url !== '')
+    .slice(0, assetReferenceCapacity(spec));
+
+  if (assetUrls.length > 0) {
+    instance.referenceImages = await Promise.all(
+      assetUrls.map(async (url, index) => ({
+        image: await toInlineImage(url, `reference image ${index + 1}`),
+        referenceType: 'asset',
+      })),
+    );
   }
 
   if (input.lastFrameImageUrl && spec.supportsLastFrame) {

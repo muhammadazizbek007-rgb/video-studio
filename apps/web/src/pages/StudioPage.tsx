@@ -17,6 +17,7 @@ import { Wand2 } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Card, Surface } from '@/components/ui';
+import { AttachedElements } from '@/components/video/AttachedElements';
 import { GenerationGrid } from '@/components/video/GenerationGrid';
 import { GenerationSettings } from '@/components/video/GenerationSettings';
 import { ModelPicker } from '@/components/video/ModelPicker';
@@ -33,7 +34,7 @@ import {
   useUpdateGeneration,
 } from '@/hooks/useGenerations';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { resolveReferences } from '@/lib/references';
+import { assetReferenceCapacity, previewReferences } from '@/lib/references';
 
 const PROMPT_MAX_LENGTH = 8000;
 
@@ -79,13 +80,15 @@ export function StudioPage() {
     if (!model.supportsImageToVideo) setFirstFrameUrl(null);
   }, [model, modelId]);
 
+  // A preview of what the server will do with this prompt: the same resolver runs there, so
+  // what the panel shows is what Veo gets.
   const references = useMemo(
     () =>
-      resolveReferences({
+      previewReferences({
         prompt,
         elements: elements ?? [],
         model,
-        uploadedImageUrl: firstFrameUrl,
+        firstFrameImageUrl: firstFrameUrl,
       }),
     [prompt, elements, model, firstFrameUrl],
   );
@@ -126,6 +129,9 @@ export function StudioPage() {
     if (!trimmed) return;
     setError('');
 
+    // Only what the user chose travels: the mentions stay in the prompt and the server
+    // resolves them against the library, so the browser cannot attach an element the
+    // account does not own — or forget one it does.
     const payload: CreateGenerationInput = {
       prompt: trimmed,
       modelId,
@@ -134,14 +140,8 @@ export function StudioPage() {
       duration,
       stylePreset,
       cameraMotion,
-      enrichedPrompt:
-        references.enrichedPromptHint && references.enrichedPromptHint !== trimmed
-          ? references.enrichedPromptHint
-          : undefined,
-      referenceImageUrls:
-        references.referenceImageUrls.length > 0 ? references.referenceImageUrls : undefined,
+      firstFrameImageUrl: model.supportsImageToVideo && firstFrameUrl ? firstFrameUrl : undefined,
       lastFrameImageUrl: model.supportsLastFrame && lastFrameUrl ? lastFrameUrl : undefined,
-      elements: [...references.visualRefs, ...references.textRefs],
     };
 
     try {
@@ -169,9 +169,11 @@ export function StudioPage() {
               stylePreset,
               cameraMotion,
               mode,
-              elements: [...references.visualRefs, ...references.textRefs],
+              elements: references.refs,
             }}
           />
+
+          <AttachedElements resolved={references} capacity={assetReferenceCapacity(model)} />
 
           <ModelPicker value={modelId} onChange={setModelId} disabled={busy} />
 
@@ -187,7 +189,9 @@ export function StudioPage() {
             onStylePresetChange={setStylePreset}
             cameraMotion={cameraMotion}
             onCameraMotionChange={setCameraMotion}
-            referenceCount={references.referenceImageUrls.length}
+            referenceCount={
+              references.assetImageUrls.length + (references.firstFrameImageUrl ? 1 : 0)
+            }
             disabled={busy}
           />
 

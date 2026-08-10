@@ -1,5 +1,6 @@
 import type {
   CameraMotion,
+  ElementDto,
   VeoModelSpec,
   VideoAspectRatio,
   VideoDuration,
@@ -26,7 +27,9 @@ import {
   Ratio,
   Sparkles,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { MentionListbox } from '@/components/mentions/MentionListbox';
+import { useMentionAutocomplete } from '@/components/mentions/useMentionAutocomplete';
 import { Badge, Button, Input, Surface } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
@@ -44,6 +47,8 @@ export interface CinemaBottomBarProps {
   onModeChange: (mode: CinemaInputMode) => void;
   prompt: string;
   onPromptChange: (value: string) => void;
+  /** The account's saved elements, so `@` offers the same list the studio does. */
+  elements?: readonly ElementDto[];
   model: VeoModelSpec;
   modelId: string;
   onModelChange: (id: string) => void;
@@ -69,6 +74,7 @@ export function CinemaBottomBar({
   onModeChange,
   prompt,
   onPromptChange,
+  elements = [],
   model,
   modelId,
   onModelChange,
@@ -90,6 +96,17 @@ export function CinemaBottomBar({
   const { t } = useLanguage();
   const [modelOpen, setModelOpen] = useState(false);
   const [openChip, setOpenChip] = useState<SettingChip | null>(null);
+
+  // Segments are generated from this field, so a character mentioned here has to attach the
+  // same way it does in the studio — otherwise a storyboard is the one place where a saved
+  // face silently turns back into plain text.
+  const promptRef = useRef<HTMLInputElement | null>(null);
+  const mentions = useMentionAutocomplete<HTMLInputElement>({
+    value: prompt,
+    onChange: onPromptChange,
+    elements,
+    fieldRef: promptRef,
+  });
 
   const toggleChip = (chip: SettingChip) => (open: boolean) => setOpenChip(open ? chip : null);
 
@@ -144,18 +161,41 @@ export function CinemaBottomBar({
         </fieldset>
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <Input
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value)}
-            placeholder={t('cinema.promptPlaceholder')}
-            aria-label={t('studio.prompt')}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && prompt.trim() && !busy) {
-                event.preventDefault();
-                onGenerate();
+          <div className="relative">
+            <Input
+              ref={promptRef}
+              value={prompt}
+              onChange={mentions.handleChange}
+              placeholder={t('cinema.promptPlaceholder')}
+              aria-label={t('studio.prompt')}
+              aria-autocomplete="list"
+              aria-expanded={mentions.open}
+              aria-controls={mentions.open ? mentions.listboxId : undefined}
+              aria-activedescendant={
+                mentions.open ? `${mentions.listboxId}-${mentions.activeIndex}` : undefined
               }
-            }}
-          />
+              onBlur={() => window.setTimeout(mentions.close, 120)}
+              onKeyDown={(event) => {
+                // Enter picks the highlighted element while the popup is open; only once it
+                // is closed does Enter mean "generate".
+                if (mentions.handleKeyDown(event)) return;
+                if (event.key === 'Enter' && !event.shiftKey && prompt.trim() && !busy) {
+                  event.preventDefault();
+                  onGenerate();
+                }
+              }}
+            />
+
+            {mentions.open ? (
+              <MentionListbox
+                id={mentions.listboxId}
+                suggestions={mentions.suggestions}
+                activeIndex={mentions.activeIndex}
+                onSelect={mentions.insert}
+                placement="bottom"
+              />
+            ) : null}
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {isImage ? (

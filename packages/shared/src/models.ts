@@ -11,6 +11,14 @@ export interface VeoModelSpec {
   supportsImageToVideo: boolean;
   supportsAudio: boolean;
   supportsLastFrame: boolean;
+  /**
+   * Whether the model accepts `referenceImages` — the asset references that keep a saved
+   * character, location or prop looking the same from clip to clip. Distinct from
+   * `supportsImageToVideo`, which is about animating one opening frame.
+   */
+  supportsReferenceImages: boolean;
+  /** Asset reference images accepted per request; 3 is the Veo 3.1 ceiling. */
+  maxAssetReferences: number;
   maxResolution: string;
 }
 
@@ -26,6 +34,8 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsImageToVideo: true,
     supportsAudio: true,
     supportsLastFrame: true,
+    supportsReferenceImages: true,
+    maxAssetReferences: 3,
     maxResolution: '1080p',
   },
   'veo-3.1-fast': {
@@ -39,6 +49,8 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsImageToVideo: true,
     supportsAudio: true,
     supportsLastFrame: true,
+    supportsReferenceImages: true,
+    maxAssetReferences: 3,
     maxResolution: '1080p',
   },
   'veo-3.1-lite': {
@@ -55,6 +67,8 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     // last-frame support was not, and claiming a capability the model lacks
     // fails at generation time rather than at selection time.
     supportsLastFrame: false,
+    supportsReferenceImages: true,
+    maxAssetReferences: 3,
     maxResolution: '720p',
   },
 };

@@ -1,13 +1,22 @@
 import type {
   CreateGenerationInput,
+  ElementDto,
+  FramePolicy,
   VeoModelSpec,
   VideoAspectRatio,
   VideoGenerationStatus,
 } from '@video-studio/shared';
-import { getVeoModel, resolveAspectRatio, resolveDuration } from '@video-studio/shared';
+import {
+  getVeoModel,
+  resolveAspectRatio,
+  resolveDuration,
+  resolveMentions,
+} from '@video-studio/shared';
 import type { FilterQuery, HydratedDocument } from 'mongoose';
 import { Types } from 'mongoose';
 import type { AuthUser } from '../auth/plugin.js';
+import { toElementDto } from '../db/mappers.js';
+import { ElementModel } from '../db/models/element.js';
 import { type GenerationDoc, GenerationModel } from '../db/models/generation.js';
 import { StoryboardModel } from '../db/models/storyboard.js';
 import { ApiError, isApiError } from '../errors.js';
@@ -46,9 +55,28 @@ function toObjectId(value: string, what: string): Types.ObjectId {
   return new Types.ObjectId(value);
 }
 
+/** Nobody curates hundreds of elements, and a mention can only match one that was read. */
+const ELEMENT_LOOKUP_LIMIT = 500;
+
+async function loadElements(userId: string): Promise<ElementDto[]> {
+  const docs = await ElementModel.find({ userId: toObjectId(userId, 'Account') })
+    .limit(ELEMENT_LOOKUP_LIMIT)
+    .exec();
+  return docs.map(toElementDto);
+}
+
+export interface CreateGenerationOptions {
+  /**
+   * Storyboard segments pass `frame-wins`: their opening frame is the previous segment's
+   * closing frame, so dropping it in favour of an element photo would break the cut.
+   */
+  framePolicy?: FramePolicy;
+}
+
 export async function createGeneration(
   user: AuthUser,
   input: CreateGenerationInput,
+  options: CreateGenerationOptions = {},
 ): Promise<GenerationDocument> {
   const spec = resolveModel(input.modelId);
 
@@ -60,20 +88,38 @@ export async function createGeneration(
   }
   const duration = resolveDuration(spec, input.duration);
 
-  const referenceImageUrls = input.referenceImageUrls ?? [];
-  if (referenceImageUrls.length > 0 && !spec.supportsImageToVideo) {
+  // `@Мухаммад` becomes an attached photo here, not in the browser: the studio, a storyboard
+  // segment and an MCP client all reach this line, and only the server can tell which
+  // elements this account actually owns.
+  const resolved = resolveMentions({
+    prompt: input.prompt,
+    elements: await loadElements(user.id),
+    model: spec,
+    firstFrameImageUrl: input.firstFrameImageUrl ?? input.referenceImageUrls?.[0],
+    framePolicy: options.framePolicy,
+  });
+
+  if (resolved.firstFrameImageUrl && !spec.supportsImageToVideo) {
     throw new ApiError('invalid-argument', `${spec.name} does not support image-to-video.`);
   }
   if (input.lastFrameImageUrl && !spec.supportsLastFrame) {
     throw new ApiError('invalid-argument', `${spec.name} does not support a closing frame.`);
   }
 
+  // History shows what the clip was made from, opening frame first — which is also what the
+  // card uses as its poster.
+  const referenceImageUrls = [
+    ...(resolved.firstFrameImageUrl ? [resolved.firstFrameImageUrl] : []),
+    ...resolved.assetImageUrls,
+  ];
+
   const doc = await GenerationModel.create({
     userId: toObjectId(user.id, 'Account'),
     prompt: input.prompt,
-    enrichedPrompt: input.enrichedPrompt,
+    // Stored even when it equals the prompt: it is the only record of what Veo was asked.
+    enrichedPrompt: resolved.promptForModel,
     modelId: spec.id,
-    mode: input.mode,
+    mode: resolved.mode,
     aspectRatio,
     duration,
     stylePreset: input.stylePreset,
@@ -82,7 +128,7 @@ export async function createGeneration(
     saved: false,
     referenceImageUrls,
     lastFrameImageUrl: input.lastFrameImageUrl,
-    elements: input.elements ?? [],
+    elements: resolved.refs,
     referenceCount: referenceImageUrls.length,
   });
 
@@ -90,13 +136,14 @@ export async function createGeneration(
     const started = await startVeoOperation({
       generationId: doc._id.toString(),
       userId: user.id,
-      prompt: input.enrichedPrompt ?? input.prompt,
+      prompt: resolved.promptForModel,
       modelId: spec.id,
       aspectRatio,
       duration,
       stylePreset: input.stylePreset,
       cameraMotion: input.cameraMotion,
-      referenceImageUrls,
+      firstFrameImageUrl: resolved.firstFrameImageUrl ?? undefined,
+      assetReferenceUrls: resolved.assetImageUrls,
       lastFrameImageUrl: input.lastFrameImageUrl,
     });
 
