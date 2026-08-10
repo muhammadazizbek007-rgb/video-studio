@@ -18,6 +18,9 @@ import { logger } from './logger.js';
 /** Hard ceiling so an over-long enriched prompt can never be rejected by the API. */
 const MAX_PROMPT_CHARS = 1800;
 
+/** What joins the assembled sections, and what the length budget has to account for. */
+const SEPARATOR = '. ';
+
 /**
  * A bare "Dolly in camera movement" is ambiguous and often makes the *subject* move
  * instead of the camera, so every phrase names the camera explicitly.
@@ -81,11 +84,42 @@ const IMAGE_QUALITY_SUFFIX =
   'Sharp, high detail, no watermark, no logo overlay, no captions or burned-in text';
 
 /**
+ * Physical continuity, stated as what the world does rather than what it must not do.
+ *
+ * Veo's characteristic failure is not ugliness, it is incoherence: the phone leaves the
+ * hand without being put down, the screen turns itself around, a label rewrites itself
+ * between frames. Asking for that in the negative — "the phone does not disappear" — makes
+ * it likelier, because the model has no dependable notion of negation and naming a thing is
+ * mostly a way of putting it in frame. So the prohibitions live in the negative prompt,
+ * which is the parameter built to carry them, and everything here is an assertion about how
+ * objects behave.
+ *
+ * Deliberately generic: it never names a phone or any other prop, so it reads as a rule the
+ * whole scene obeys instead of a hint about which object matters.
+ */
+export const PHYSICAL_CONSISTENCY_PROMPT =
+  'Physical continuity: every object keeps one shape, size, colour and identity for the whole ' +
+  'shot and stays where the action leaves it. Hands keep a settled, deliberate grip on what ' +
+  'they hold. Screens, labels and printed text keep showing the same content unless the action ' +
+  'itself changes it. Everything moves with real weight and gravity, in one unbroken take';
+
+/**
  * Applied to every generation. Veo readily burns in subtitles when the scene has speech,
  * and watermarks or artifacts are never wanted.
  */
 const BASE_NEGATIVE_PROMPT =
   'subtitles, captions, burned-in text, watermark, logo overlay, distorted faces, extra limbs, blurry, low resolution';
+
+/**
+ * The other half of the continuity guardrail: the failures themselves, where a negation is
+ * read as a negation. These are the artefacts that make a clip unusable rather than merely
+ * imperfect, so they ride on every request alongside the base list.
+ */
+const CONTINUITY_NEGATIVE_PROMPT =
+  'morphing, warping, shape-shifting, objects appearing or vanishing mid-shot, items ' +
+  'teleporting or swapping between hands, objects slipping out of the hand, floating or ' +
+  'levitating props, extra or missing fingers, deformed hands, screens flipping or changing ' +
+  'content on their own, text or logos mutating, jump cut, scene change, impossible physics';
 
 /** Extra guardrail for a locked-off shot — the text instruction alone is not reliable. */
 const STATIC_NEGATIVE_PROMPT =
@@ -136,7 +170,16 @@ function describeStylePreset(stylePreset: string | undefined): string | null {
   return STYLE_PRESET_PROMPTS[style] ?? `${style} style`;
 }
 
-/** Assembles the final Veo prompt in scene -> style -> camera -> audio order. */
+/**
+ * Assembles the final Veo prompt in scene -> style -> camera -> audio -> continuity order.
+ *
+ * The instructions after the scene are trimmed for, not trimmed away. Truncating the joined
+ * string is what a length cap invites, and it silently drops whatever sits at the end — so a
+ * long enriched scene used to cost the shot its camera direction, and would now cost it the
+ * continuity clause, which is exactly the request that must never be the one to go. The cap
+ * is spent on the scene instead, since a scene is the one part that can lose its tail and
+ * still say what it means.
+ */
 export function buildVeoPrompt(input: PromptInput): string {
   const scene = (input.enrichedPrompt ?? input.prompt ?? '').trim();
 
@@ -144,22 +187,30 @@ export function buildVeoPrompt(input: PromptInput): string {
   const opening =
     input.hasReferenceImage && scene ? `Starting from the provided first frame: ${scene}` : scene;
 
-  const parts = [opening];
+  const tail: string[] = [];
 
   const style = describeStylePreset(input.stylePreset);
-  if (style) parts.push(style);
+  if (style) tail.push(style);
 
   const camera = describeCameraMotion(input.cameraMotion);
-  if (camera) parts.push(camera);
+  if (camera) tail.push(camera);
 
   if (input.supportsAudio && !AUDIO_KEYWORDS.test(scene)) {
-    parts.push(DEFAULT_AUDIO_PROMPT);
+    tail.push(DEFAULT_AUDIO_PROMPT);
   }
 
-  const result = parts.filter(Boolean).join('. ');
-  return result.length > MAX_PROMPT_CHARS
-    ? `${result.slice(0, MAX_PROMPT_CHARS - 1).trimEnd()}…`
-    : result;
+  // An empty request stays empty: there is no shot to keep coherent, and a prompt that is
+  // nothing but guardrails would describe a scene the user never asked for.
+  if (opening === '' && tail.length === 0) return '';
+
+  tail.push(PHYSICAL_CONSISTENCY_PROMPT);
+
+  const suffix = tail.join('. ');
+  const room = Math.max(0, MAX_PROMPT_CHARS - suffix.length - SEPARATOR.length);
+  const trimmed =
+    opening.length > room ? `${opening.slice(0, Math.max(0, room - 1)).trimEnd()}…` : opening;
+
+  return [trimmed, suffix].filter(Boolean).join(SEPARATOR);
 }
 
 export interface ImagePromptInput {
@@ -187,11 +238,16 @@ export function buildImagePrompt(input: ImagePromptInput): string {
     : result;
 }
 
-/** Negative prompt for a generation; always non-empty. */
+/**
+ * Negative prompt for a generation; always non-empty.
+ *
+ * The continuity terms are unconditional. Every shot has objects in it, and a clip where one
+ * of them morphs or leaves the hand on its own is unusable whatever the camera was doing.
+ */
 export function buildNegativePrompt(cameraMotion?: string): string {
-  return cameraMotion === 'Static'
-    ? `${BASE_NEGATIVE_PROMPT}, ${STATIC_NEGATIVE_PROMPT}`
-    : BASE_NEGATIVE_PROMPT;
+  const parts = [BASE_NEGATIVE_PROMPT, CONTINUITY_NEGATIVE_PROMPT];
+  if (cameraMotion === 'Static') parts.push(STATIC_NEGATIVE_PROMPT);
+  return parts.join(', ');
 }
 
 const ENRICHMENT_MODEL = 'claude-sonnet-5';

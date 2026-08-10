@@ -26,6 +26,7 @@ import {
   CAMERA_MOTION_PROMPTS,
   enrichPrompt,
   IMAGE_STYLE_PRESET_PROMPTS,
+  PHYSICAL_CONSISTENCY_PROMPT,
   STYLE_PRESET_PROMPTS,
 } from './prompt.js';
 
@@ -33,44 +34,56 @@ const DEFAULT_AUDIO_LINE =
   'Audio: natural ambient sound that matches the scene, no spoken narration';
 const STATIC_NEGATIVE_FRAGMENT = 'camera shake, camera movement, panning';
 
+/**
+ * Every assembled prompt ends with the continuity clause, so the cases below state the parts
+ * they are actually about and let this add the constant.
+ */
+function assembled(...parts: string[]): string {
+  return [...parts, PHYSICAL_CONSISTENCY_PROMPT].join('. ');
+}
+
 describe('buildVeoPrompt', () => {
   it('gives every camera preset its mapped phrase', () => {
     for (const [preset, phrase] of Object.entries(CAMERA_MOTION_PROMPTS)) {
       expect(buildVeoPrompt({ prompt: 'A cat on a windowsill', cameraMotion: preset })).toBe(
-        `A cat on a windowsill. ${phrase}`,
+        assembled('A cat on a windowsill', phrase),
       );
     }
   });
 
   it('falls back to a generic camera-movement phrase for an unknown preset', () => {
     expect(buildVeoPrompt({ prompt: 'A cat', cameraMotion: 'Crane Up' })).toBe(
-      'A cat. The camera performs a crane up movement',
+      assembled('A cat', 'The camera performs a crane up movement'),
     );
   });
 
   it('adds nothing for a blank camera preset', () => {
-    expect(buildVeoPrompt({ prompt: 'A cat', cameraMotion: '   ' })).toBe('A cat');
+    expect(buildVeoPrompt({ prompt: 'A cat', cameraMotion: '   ' })).toBe(assembled('A cat'));
   });
 
   it('gives every style preset its mapped phrase', () => {
     for (const [preset, phrase] of Object.entries(STYLE_PRESET_PROMPTS)) {
-      expect(buildVeoPrompt({ prompt: 'A cat', stylePreset: preset })).toBe(`A cat. ${phrase}`);
+      expect(buildVeoPrompt({ prompt: 'A cat', stylePreset: preset })).toBe(
+        assembled('A cat', phrase),
+      );
     }
   });
 
   it('falls back to "<label> style" for an unknown style preset', () => {
-    expect(buildVeoPrompt({ prompt: 'A cat', stylePreset: 'Noir' })).toBe('A cat. Noir style');
+    expect(buildVeoPrompt({ prompt: 'A cat', stylePreset: 'Noir' })).toBe(
+      assembled('A cat', 'Noir style'),
+    );
   });
 
   it('puts style before camera', () => {
     expect(buildVeoPrompt({ prompt: 'A cat', stylePreset: 'UGC', cameraMotion: 'Pan' })).toBe(
-      `A cat. ${STYLE_PRESET_PROMPTS.UGC}. ${CAMERA_MOTION_PROMPTS.Pan}`,
+      assembled('A cat', STYLE_PRESET_PROMPTS.UGC ?? '', CAMERA_MOTION_PROMPTS.Pan ?? ''),
     );
   });
 
   it('prepends the first-frame opener when a reference image is supplied', () => {
     expect(buildVeoPrompt({ prompt: 'A cat stretches', hasReferenceImage: true })).toBe(
-      'Starting from the provided first frame: A cat stretches',
+      assembled('Starting from the provided first frame: A cat stretches'),
     );
   });
 
@@ -81,18 +94,18 @@ describe('buildVeoPrompt', () => {
   it('prefers enrichedPrompt over prompt as the scene', () => {
     expect(
       buildVeoPrompt({ prompt: 'A cat', enrichedPrompt: 'A ginger cat in golden light' }),
-    ).toBe('A ginger cat in golden light');
+    ).toBe(assembled('A ginger cat in golden light'));
   });
 
   it('adds the default audio line when the model has audio and the scene is silent about sound', () => {
     expect(buildVeoPrompt({ prompt: 'A cat on a windowsill', supportsAudio: true })).toBe(
-      `A cat on a windowsill. ${DEFAULT_AUDIO_LINE}`,
+      assembled('A cat on a windowsill', DEFAULT_AUDIO_LINE),
     );
   });
 
   it('adds no audio line when the model has no audio track', () => {
-    expect(buildVeoPrompt({ prompt: 'A cat, music plays' })).toBe('A cat, music plays');
-    expect(buildVeoPrompt({ prompt: 'A cat' })).toBe('A cat');
+    expect(buildVeoPrompt({ prompt: 'A cat, music plays' })).toBe(assembled('A cat, music plays'));
+    expect(buildVeoPrompt({ prompt: 'A cat' })).toBe(assembled('A cat'));
   });
 
   it('skips the default audio line when the scene mentions sound in English', () => {
@@ -105,7 +118,7 @@ describe('buildVeoPrompt', () => {
       'The dialogue is tense',
     ];
     for (const prompt of scenes) {
-      expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(prompt);
+      expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(assembled(prompt));
     }
   });
 
@@ -119,7 +132,7 @@ describe('buildVeoPrompt', () => {
       'на фоне поёт птица',
     ];
     for (const prompt of scenes) {
-      expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(prompt);
+      expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(assembled(prompt));
     }
   });
 
@@ -132,7 +145,7 @@ describe('buildVeoPrompt', () => {
       'He speaks softly',
     ]) {
       expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(
-        `${prompt}. ${DEFAULT_AUDIO_LINE}`,
+        assembled(prompt, DEFAULT_AUDIO_LINE),
       );
     }
   });
@@ -144,19 +157,30 @@ describe('buildVeoPrompt', () => {
         enrichedPrompt: 'A cat on a windowsill while music plays',
         supportsAudio: true,
       }),
-    ).toBe('A cat on a windowsill while music plays');
+    ).toBe(assembled('A cat on a windowsill while music plays'));
   });
 
-  it('truncates an over-long prompt to the cap and ends it with an ellipsis', () => {
+  it('stays within the cap when the scene is over-long, and marks the cut', () => {
     const result = buildVeoPrompt({ prompt: 'a'.repeat(2500) });
-    expect(result).toHaveLength(1800);
-    expect(result.endsWith('…')).toBe(true);
-    expect(result.slice(0, 1799)).toBe('a'.repeat(1799));
+    expect(result.length).toBeLessThanOrEqual(1800);
+    expect(result).toContain('…');
   });
 
-  it('leaves a prompt at exactly the cap untouched', () => {
-    const exact = 'a'.repeat(1800);
-    expect(buildVeoPrompt({ prompt: exact })).toBe(exact);
+  // The guardrails sit at the end of the assembly, which is exactly where a naive truncation
+  // eats them — so the budget is spent on the scene and the instructions always survive.
+  it('spends the cap on the scene rather than dropping the instructions', () => {
+    const result = buildVeoPrompt({
+      prompt: 'a'.repeat(2500),
+      stylePreset: 'UGC',
+      cameraMotion: 'Pan',
+      supportsAudio: true,
+    });
+
+    expect(result.length).toBeLessThanOrEqual(1800);
+    expect(result.endsWith(PHYSICAL_CONSISTENCY_PROMPT)).toBe(true);
+    expect(result).toContain(STYLE_PRESET_PROMPTS.UGC ?? '');
+    expect(result).toContain(CAMERA_MOTION_PROMPTS.Pan ?? '');
+    expect(result).toContain(DEFAULT_AUDIO_LINE);
   });
 
   it('never produces leading separators for an empty prompt', () => {
@@ -169,8 +193,36 @@ describe('buildVeoPrompt', () => {
         supportsAudio: true,
       }),
     ).toBe(
-      `${STYLE_PRESET_PROMPTS.Cinematic}. ${CAMERA_MOTION_PROMPTS.Pan}. ${DEFAULT_AUDIO_LINE}`,
+      assembled(
+        STYLE_PRESET_PROMPTS.Cinematic ?? '',
+        CAMERA_MOTION_PROMPTS.Pan ?? '',
+        DEFAULT_AUDIO_LINE,
+      ),
     );
+  });
+
+  // The whole point of moving this into the project rather than the skill: the MCP server,
+  // the studio form and the storyboard generator all reach Veo through this one function.
+  it('asks for physical continuity on every shot, whatever the caller supplied', () => {
+    const callers = [
+      { prompt: 'A cat' },
+      { prompt: 'A cat', stylePreset: 'UGC' },
+      { prompt: 'A cat', cameraMotion: 'Static' },
+      { prompt: 'A cat', hasReferenceImage: true },
+      { prompt: 'A cat', enrichedPrompt: 'A ginger cat', supportsAudio: true },
+    ];
+
+    for (const caller of callers) {
+      expect(buildVeoPrompt(caller)).toContain(PHYSICAL_CONSISTENCY_PROMPT);
+    }
+  });
+
+  // Negation is what the negative prompt is for; here it would mostly summon the phone it
+  // is trying to keep in frame.
+  it('states continuity positively, never as a prohibition', () => {
+    for (const word of [' no ', ' not ', 'never', "n't", 'without']) {
+      expect(PHYSICAL_CONSISTENCY_PROMPT.toLowerCase()).not.toContain(word);
+    }
   });
 });
 
@@ -187,6 +239,24 @@ describe('buildNegativePrompt', () => {
     for (const preset of Object.keys(CAMERA_MOTION_PROMPTS)) {
       if (preset === 'Static') continue;
       expect(buildNegativePrompt(preset)).toBe(base);
+    }
+  });
+
+  // These are the artefacts that make a clip unusable rather than merely imperfect, and
+  // every shot has objects in it — so no camera preset gets to opt out of them.
+  it('refuses the continuity artefacts whatever the camera is doing', () => {
+    const wanted = [
+      'morphing',
+      'objects appearing or vanishing mid-shot',
+      'objects slipping out of the hand',
+      'screens flipping or changing content on their own',
+      'deformed hands',
+      'impossible physics',
+    ];
+
+    for (const preset of [...Object.keys(CAMERA_MOTION_PROMPTS), undefined]) {
+      const negative = buildNegativePrompt(preset);
+      for (const term of wanted) expect(negative).toContain(term);
     }
   });
 });
