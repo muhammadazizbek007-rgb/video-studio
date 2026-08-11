@@ -531,6 +531,40 @@ describe('VideoToolsMenu', () => {
     expect(onPick).toHaveBeenCalledWith('extend');
   });
 
+  it('closes on Escape, like every other dismissible thing on the page', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderWithProviders(<VideoToolsMenu open onOpenChange={onOpenChange} onPick={vi.fn()} />);
+
+    await user.keyboard('{Escape}');
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // It is anchored to a button that scrolls with the page: left open it drifts away from
+  // what opened it and rides over the header.
+  it('closes when the page scrolls out from under it', () => {
+    const onOpenChange = vi.fn();
+    renderWithProviders(<VideoToolsMenu open onOpenChange={onOpenChange} onPick={vi.fn()} />);
+
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('listens for neither once it is closed', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderWithProviders(
+      <VideoToolsMenu open={false} onOpenChange={onOpenChange} onPick={vi.fn()} />,
+    );
+
+    await user.keyboard('{Escape}');
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   // A tool that is not built yet is shown rather than hidden — but it must not be clickable,
   // or the menu promises something the server cannot do.
   it('shows an unavailable tool without letting it be chosen', async () => {

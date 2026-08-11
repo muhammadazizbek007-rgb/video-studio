@@ -1,11 +1,16 @@
 import { ChevronRight, Crop, Eraser, Plus, Sparkles, StepForward, Wand2 } from 'lucide-react';
-import { useId } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { IconButton, Surface, Tooltip } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
 import type { TranslationKey } from '@/i18n/translations';
 import { cn } from '@/lib/cn';
 
 export type VideoTool = 'extend' | 'removeObject' | 'insertObject' | 'outpaint' | 'upscale';
+
+/** Breathing room kept between the panel and the edge of the window. */
+const VIEWPORT_MARGIN = 12;
+/** Below this a panel is not worth opening at all, so it scrolls rather than shrinking further. */
+const MIN_PANEL_HEIGHT = 160;
 
 interface ToolSpec {
   id: VideoTool;
@@ -53,9 +58,51 @@ export function VideoToolsMenu({
 }: VideoToolsMenuProps) {
   const { t } = useLanguage();
   const menuId = useId();
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+
+  // Opening upward is the right default — the button lives in a control row at the bottom of
+  // the player — but it is only a default. With the player low on the page there is no room
+  // above, and a panel anchored upward simply runs off the top: the heading disappears and
+  // the first item is sliced in half, which is how this shipped.
+  const [placement, setPlacement] = useState<'up' | 'down'>('up');
+  const [maxHeight, setMaxHeight] = useState<number>();
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const above = rect.top - VIEWPORT_MARGIN;
+    const below = window.innerHeight - rect.bottom - VIEWPORT_MARGIN;
+    const goesUp = above >= below;
+
+    setPlacement(goesUp ? 'up' : 'down');
+    // Whichever way it opens, it stops at the edge of the window and scrolls inside itself.
+    // A clipped item is unreachable; a scrolled one is merely further down.
+    setMaxHeight(Math.max(MIN_PANEL_HEIGHT, Math.floor(goesUp ? above : below)));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpenChange(false);
+    };
+    // Anchored to a button that scrolls with the page, so staying open through a scroll
+    // means drifting away from what opened it and over whatever is above.
+    const onScroll = () => onOpenChange(false);
+
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onScroll, { capture: true });
+    };
+  }, [open, onOpenChange]);
 
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <Tooltip content={t('tools.title')}>
         <IconButton
           size="sm"
@@ -84,7 +131,11 @@ export function VideoToolsMenu({
             aria-label={t('tools.title')}
             elevation="raised-lg"
             radius="md"
-            className="absolute bottom-full right-0 z-50 mb-2 w-72 animate-neu-pop-in overflow-hidden py-1"
+            style={maxHeight === undefined ? undefined : { maxHeight }}
+            className={cn(
+              'absolute right-0 z-50 w-72 animate-neu-pop-in overflow-y-auto py-1',
+              placement === 'up' ? 'bottom-full mb-2' : 'top-full mt-2',
+            )}
           >
             <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-text-subtle">
               {t('tools.title')}
