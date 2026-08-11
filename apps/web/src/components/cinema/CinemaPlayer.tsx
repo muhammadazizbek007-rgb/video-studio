@@ -10,7 +10,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { KeyboardEvent, MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, IconButton, Spinner, Surface } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -49,6 +49,14 @@ export interface CinemaPlayerProps {
   onExport: () => void;
   isSaving: boolean;
   saveProgress: number;
+  /**
+   * The tools entry for whichever segment is on screen.
+   *
+   * A render prop rather than a node: only the player knows which segment is playing, and
+   * only the page knows what can be done to the clip behind it. Called with undefined while
+   * there is nothing to act on.
+   */
+  renderTools?: (segment: string | undefined) => ReactNode;
 }
 
 export function CinemaPlayer({
@@ -59,6 +67,7 @@ export function CinemaPlayer({
   onExport,
   isSaving,
   saveProgress,
+  renderTools,
 }: CinemaPlayerProps) {
   const { t } = useLanguage();
 
@@ -407,6 +416,7 @@ export function CinemaPlayer({
               disabled={!hasVideo}
               onClick={toggleFullscreen}
             />
+            {renderTools?.(hasVideo ? curSeg : undefined)}
             <Button
               size="sm"
               variant="secondary"

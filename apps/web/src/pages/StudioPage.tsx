@@ -331,7 +331,7 @@ export function StudioPage() {
         {selected ? (
           <ExtendClipDialog
             open={extendOpen}
-            source={selected}
+            sourcePrompt={selected.prompt}
             pending={extendGeneration.isPending}
             error={extendError}
             onClose={() => setExtendOpen(false)}

@@ -159,6 +159,9 @@ const ru = {
   'tools.extendFailed': 'Не удалось запустить продолжение',
   'tools.extendUnsupported': 'Эта модель не умеет продолжать готовый ролик',
   'tools.extendNotReady': 'Продолжить можно только готовый ролик',
+  'tools.extendLandsInStudio':
+    'Продолжение появится в Студии отдельным роликом — раскадровка не изменится.',
+  'tools.extendLandedInStudio': 'Продолжение запущено. Оно появится в Студии отдельным роликом.',
 
   'status.pending': 'В очереди',
   'status.processing': 'Генерируется',
@@ -577,6 +580,9 @@ const uz: Dictionary = {
   'tools.extendFailed': 'Davomini boshlab bo‘lmadi',
   'tools.extendUnsupported': 'Bu model tayyor rolikni davom ettira olmaydi',
   'tools.extendNotReady': 'Faqat tayyor rolikni davom ettirish mumkin',
+  'tools.extendLandsInStudio':
+    'Davomi Studiyada alohida rolik sifatida paydo bo‘ladi — raskadrovka o‘zgarmaydi.',
+  'tools.extendLandedInStudio': 'Davomi boshlandi. U Studiyada alohida rolik bo‘lib chiqadi.',
 
   'status.pending': 'Navbatda',
   'status.processing': 'Yaratilmoqda',
@@ -992,6 +998,10 @@ const en: Dictionary = {
   'tools.extendFailed': 'Could not start the continuation',
   'tools.extendUnsupported': 'This model cannot continue a finished clip',
   'tools.extendNotReady': 'Only a finished clip can be continued',
+  'tools.extendLandsInStudio':
+    'The continuation appears in the Studio as its own clip — the storyboard is unchanged.',
+  'tools.extendLandedInStudio':
+    'Continuation started. It will appear in the Studio as its own clip.',
 
   'status.pending': 'Queued',
   'status.processing': 'Generating',

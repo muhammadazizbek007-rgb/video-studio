@@ -14,7 +14,11 @@ import { ImageResults } from '@/components/cinema/ImageResults';
 import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStrip';
 import { MediaPicker } from '@/components/media/MediaPicker';
 import { IconButton, Spinner, Surface } from '@/components/ui';
+import { ExtendClipDialog } from '@/components/video/ExtendClipDialog';
+import type { VideoTool } from '@/components/video/VideoToolsMenu';
+import { VideoToolsMenu } from '@/components/video/VideoToolsMenu';
 import { useElements } from '@/hooks/useElements';
+import { useExtendGeneration } from '@/hooks/useGenerations';
 import {
   useCreateImageGeneration,
   useDeleteImageGeneration,
@@ -26,6 +30,9 @@ import { ApiClientError } from '@/lib/api';
 import { downloadBlob, stitchSegments } from '@/lib/stitchSegments';
 
 const MODE_STORAGE_KEY = 'cinemaInputMode';
+
+/** Designed, not yet built. Listed in the menu so the gap is visible rather than silent. */
+const UNBUILT_TOOLS: readonly VideoTool[] = ['removeObject', 'insertObject', 'outpaint', 'upscale'];
 /** The board stores only the Veo model, so the image pick lives next to the mode. */
 const IMAGE_MODEL_STORAGE_KEY = 'cinemaImageModel';
 const BROWSER_EXPORT_FILENAME = 'cinema-studio.webm';
@@ -86,6 +93,7 @@ export function CinemaStudioPage() {
 
   const { storyboard, isLoading, isError, isGenerating, actions, reload } = useStoryboard();
   const { serverStitching } = useStoryboardCapabilities();
+  const extendGeneration = useExtendGeneration();
 
   // The same query the media picker reads, so a still generated here is on its Images tab
   // immediately instead of after a reload.
@@ -106,6 +114,9 @@ export function CinemaStudioPage() {
   const [saveProgress, setSaveProgress] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [extendSegment, setExtendSegment] = useState<string | null>(null);
+  const [extendError, setExtendError] = useState('');
   /** Which slot (or which segment) the media picker is currently filling. */
   const [picking, setPicking] = useState<
     { kind: 'frame'; index: number; slot: 1 | 2 } | { kind: 'video'; index: number } | null
@@ -147,11 +158,19 @@ export function CinemaStudioPage() {
 
   const segments = useMemo(() => storyboard?.segments ?? [], [storyboard]);
 
-  const { slotImages, segmentVideos, segmentDurations, segmentStates, segmentIds } = useMemo(() => {
+  const {
+    slotImages,
+    segmentVideos,
+    segmentDurations,
+    segmentStates,
+    segmentGenerationIds,
+    segmentIds,
+  } = useMemo(() => {
     const images: Record<string, string> = {};
     const videos: Record<string, string> = {};
     const durations: Record<string, number> = {};
     const states: Record<string, SegmentState> = {};
+    const generations: Record<string, string> = {};
     const ids: string[] = [];
 
     for (const [index, segment] of segments.entries()) {
@@ -161,6 +180,7 @@ export function CinemaStudioPage() {
       if (segment.lastFrameUrl) images[slotKey(index, 2)] = segment.lastFrameUrl;
       if (segment.videoUrl) videos[id] = segment.videoUrl;
       if (segment.durationSeconds) durations[id] = segment.durationSeconds;
+      if (segment.generationId) generations[id] = segment.generationId;
       states[id] = stateOf(segment);
     }
 
@@ -169,6 +189,7 @@ export function CinemaStudioPage() {
       segmentVideos: videos,
       segmentDurations: durations,
       segmentStates: states,
+      segmentGenerationIds: generations,
       segmentIds: ids,
     };
   }, [segments]);
@@ -374,8 +395,44 @@ export function CinemaStudioPage() {
             picking.slot === 2 ? t('cinema.slotLastFrame') : t('cinema.slotFirstFrame')
           }`;
 
+  /**
+   * Continues one segment of the board.
+   *
+   * The result is a standalone clip, not a new segment: the board is a fixed set of shots
+   * and appending to it is a different feature. Rather than let a working continuation seem
+   * to vanish, the dialog says up front where it will land.
+   */
+  async function runSegmentExtension(segment: string, continuation: string) {
+    const generationId = segmentGenerationIds[segment];
+    if (!generationId) return;
+
+    setExtendError('');
+    try {
+      await extendGeneration.mutateAsync({
+        id: generationId,
+        input: continuation ? { prompt: continuation } : {},
+      });
+      setExtendSegment(null);
+      setNotice(t('tools.extendLandedInStudio'));
+    } catch (failure) {
+      setExtendError(failure instanceof Error ? failure.message : t('tools.extendFailed'));
+    }
+  }
+
   return (
     <section className="relative min-h-[620px] overflow-hidden rounded-lg bg-surface shadow-neu-raised lg:min-h-[720px]">
+      <ExtendClipDialog
+        open={extendSegment !== null}
+        sourcePrompt={savedPrompt}
+        note={t('tools.extendLandsInStudio')}
+        pending={extendGeneration.isPending}
+        error={extendError}
+        onClose={() => setExtendSegment(null)}
+        onConfirm={(continuation) => {
+          if (extendSegment) void runSegmentExtension(extendSegment, continuation);
+        }}
+      />
+
       {mode === 'Video' ? (
         <>
           <div
@@ -384,6 +441,26 @@ export function CinemaStudioPage() {
             data-testid="cinema-player"
           >
             <CinemaPlayer
+              renderTools={(segment) =>
+                segment ? (
+                  <VideoToolsMenu
+                    open={toolsOpen}
+                    onOpenChange={setToolsOpen}
+                    busyTool={extendGeneration.isPending ? 'extend' : null}
+                    // A segment with no generation behind it — an imported clip — has
+                    // nothing for Veo to continue from.
+                    unavailable={
+                      segmentGenerationIds[segment] ? UNBUILT_TOOLS : [...UNBUILT_TOOLS, 'extend']
+                    }
+                    onPick={(tool) => {
+                      if (tool === 'extend') {
+                        setExtendError('');
+                        setExtendSegment(segment);
+                      }
+                    }}
+                  />
+                ) : null
+              }
               completedSegs={completedSegs}
               segmentVideos={segmentVideos}
               segmentDurations={segmentDurations}

@@ -1,4 +1,3 @@
-import type { GenerationDto } from '@video-studio/shared';
 import { useEffect, useState } from 'react';
 import { Button, Modal, Textarea } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -11,7 +10,14 @@ export interface ExtendClipDialogProps {
   onConfirm: (prompt: string) => Promise<void> | void;
   pending?: boolean;
   error?: string;
-  source: GenerationDto;
+  /**
+   * What the clip being continued was asked to be, shown as a reminder of which one this is.
+   * A string rather than the generation itself: the storyboard reaches this dialog too, and
+   * a segment there is not a generation the page is holding.
+   */
+  sourcePrompt?: string;
+  /** Said after the fact when the continuation lands somewhere other than this screen. */
+  note?: string;
 }
 
 /**
@@ -27,7 +33,8 @@ export function ExtendClipDialog({
   onConfirm,
   pending = false,
   error,
-  source,
+  sourcePrompt,
+  note,
 }: ExtendClipDialogProps) {
   const { t } = useLanguage();
   const [prompt, setPrompt] = useState('');
@@ -55,7 +62,11 @@ export function ExtendClipDialog({
         />
 
         {/* What it continues from, so nobody has to remember which clip they clicked. */}
-        <p className="line-clamp-2 text-xs text-text-subtle">{source.prompt}</p>
+        {sourcePrompt ? (
+          <p className="line-clamp-2 text-xs text-text-subtle">{sourcePrompt}</p>
+        ) : null}
+
+        {note ? <p className="text-xs text-text-muted">{note}</p> : null}
 
         {error ? (
           <p role="alert" className="text-xs text-danger">
