@@ -5,6 +5,7 @@ import {
   type CreateImageGenerationInput,
   type CreateStoryboardInput,
   type EnrichPromptInput,
+  type ExtendGenerationInput,
   elementDtoSchema,
   type GenerateSegmentInput,
   type GenerationDto,
@@ -261,6 +262,12 @@ export const api = {
     },
     refresh: (id: string) =>
       requestJson(`/generations/${id}/refresh`, generationDtoSchema, { method: 'POST' }),
+    /** Continues a finished clip; the answer is the new generation, not the source. */
+    extend: (id: string, input: ExtendGenerationInput = {}) =>
+      requestJson(`/generations/${id}/extend`, generationDtoSchema, {
+        method: 'POST',
+        body: input,
+      }),
     stream: (
       id: string,
       onUpdate: (generation: GenerationDto) => void,

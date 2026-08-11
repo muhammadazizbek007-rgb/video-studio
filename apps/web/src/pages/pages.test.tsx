@@ -13,6 +13,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { GenerationCard } from '@/components/video/GenerationCard';
 import { PromptComposer } from '@/components/video/PromptComposer';
+import { VideoToolsMenu } from '@/components/video/VideoToolsMenu';
 import type { UseGenerationsResult } from '@/hooks/useGenerations';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -43,6 +44,7 @@ let elementsMock: ElementDto[];
 let createGenerationMock: MutationMock;
 let updateGenerationMock: MutationMock;
 let deleteGenerationMock: MutationMock;
+let extendGenerationMock: MutationMock;
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => authMock,
@@ -77,6 +79,7 @@ vi.mock('@/hooks/useGenerations', () => ({
   useCreateGeneration: () => createGenerationMock,
   useUpdateGeneration: () => updateGenerationMock,
   useDeleteGeneration: () => deleteGenerationMock,
+  useExtendGeneration: () => extendGenerationMock,
 }));
 
 const USER: UserDto = {
@@ -198,6 +201,10 @@ beforeEach(() => {
   };
   updateGenerationMock = { mutateAsync: vi.fn(async () => undefined), isPending: false };
   deleteGenerationMock = { mutateAsync: vi.fn(async () => undefined), isPending: false };
+  extendGenerationMock = {
+    mutateAsync: vi.fn(async () => generationFixture({ id: 'gen-extended', status: 'pending' })),
+    isPending: false,
+  };
 });
 
 describe('LoginPage', () => {
@@ -488,6 +495,55 @@ describe('GenerationCard regeneration', () => {
     await user.click(screen.getByRole('button', { name: 'Сгенерировать заново' }));
 
     expect(onRegenerate).not.toHaveBeenCalled();
+  });
+});
+
+describe('VideoToolsMenu', () => {
+  it('keeps the control row to a single button while closed', () => {
+    renderWithProviders(<VideoToolsMenu open={false} onOpenChange={vi.fn()} onPick={vi.fn()} />);
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Инструменты' })).toBeInTheDocument();
+  });
+
+  it('lists every tool with what it does', () => {
+    renderWithProviders(<VideoToolsMenu open onOpenChange={vi.fn()} onPick={vi.fn()} />);
+
+    const menu = screen.getByRole('menu', { name: 'Инструменты' });
+    for (const label of [
+      'Продолжить ролик',
+      'Убрать предмет',
+      'Добавить предмет',
+      'Расширить кадр',
+      'Улучшить качество',
+    ]) {
+      expect(within(menu).getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it('hands back the tool that was clicked', async () => {
+    const user = userEvent.setup();
+    const onPick = vi.fn();
+    renderWithProviders(<VideoToolsMenu open onOpenChange={vi.fn()} onPick={onPick} />);
+
+    await user.click(screen.getByRole('menuitem', { name: /Продолжить ролик/ }));
+
+    expect(onPick).toHaveBeenCalledWith('extend');
+  });
+
+  // A tool that is not built yet is shown rather than hidden — but it must not be clickable,
+  // or the menu promises something the server cannot do.
+  it('shows an unavailable tool without letting it be chosen', async () => {
+    const user = userEvent.setup();
+    const onPick = vi.fn();
+    renderWithProviders(
+      <VideoToolsMenu open onOpenChange={vi.fn()} onPick={onPick} unavailable={['upscale']} />,
+    );
+
+    const item = screen.getByRole('menuitem', { name: /Улучшить качество/ });
+    expect(item).toBeDisabled();
+    await user.click(item);
+    expect(onPick).not.toHaveBeenCalled();
   });
 });
 

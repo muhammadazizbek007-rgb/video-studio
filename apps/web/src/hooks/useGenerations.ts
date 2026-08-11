@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   CreateGenerationInput,
+  ExtendGenerationInput,
   GenerationDto,
   UpdateGenerationInput,
 } from '@video-studio/shared';
@@ -173,6 +174,32 @@ export function useCreateGeneration(): UseMutationResult<
         mapGenerations(current, (item) => (item.id === context?.optimisticId ? created : item)),
       );
       queryClient.setQueryData(qk.generation(created.id), created);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.generations });
+    },
+  });
+}
+
+/**
+ * Continues a finished clip.
+ *
+ * The answer is a brand new generation, so it goes to the front of the list exactly like a
+ * fresh one — the source stays where it is, still watchable. No optimistic card here: the
+ * server decides the continuation's settings from the source, so a placeholder built in the
+ * browser would be guessing at half of them.
+ */
+export function useExtendGeneration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input?: ExtendGenerationInput }) =>
+      api.generations.extend(id, input),
+    onSuccess: (created) => {
+      queryClient.setQueryData(qk.generation(created.id), created);
+      queryClient.setQueryData<GenerationsData>(qk.generations, (current) =>
+        prependGeneration(current, created),
+      );
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: qk.generations });

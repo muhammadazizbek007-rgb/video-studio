@@ -8,7 +8,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
+import type { ChangeEvent, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IconButton, Slider, Tooltip } from '@/components/ui';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -68,9 +68,15 @@ interface VideoPlayerProps {
   src: string;
   poster?: string;
   downloadName?: string;
+  /**
+   * The tools entry, rendered between fullscreen and download. Passed in rather than built
+   * here so the player stays a player: it knows nothing about generations or what can be
+   * done to them.
+   */
+  tools?: ReactNode;
 }
 
-export function VideoPlayer({ src, poster, downloadName }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, downloadName, tools }: VideoPlayerProps) {
   const { language, t } = useLanguage();
   const labels = CONTROL_LABELS[language];
 
@@ -319,6 +325,7 @@ export function VideoPlayer({ src, poster, downloadName }: VideoPlayerProps) {
               icon={fullscreen ? <Minimize2 /> : <Maximize2 />}
               onClick={toggleFullscreen}
             />
+            {tools}
             <Tooltip content={t('common.download')}>
               <a
                 href={src}

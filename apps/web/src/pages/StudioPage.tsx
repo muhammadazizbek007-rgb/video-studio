@@ -19,6 +19,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Card, Surface } from '@/components/ui';
 import { AttachedElements } from '@/components/video/AttachedElements';
+import { ExtendClipDialog } from '@/components/video/ExtendClipDialog';
 import { GenerationGrid } from '@/components/video/GenerationGrid';
 import { GenerationSettings } from '@/components/video/GenerationSettings';
 import { ModelPicker } from '@/components/video/ModelPicker';
@@ -26,11 +27,14 @@ import { PromptComposer } from '@/components/video/PromptComposer';
 import { ReferenceUploader } from '@/components/video/ReferenceUploader';
 import { StatusPill } from '@/components/video/StatusPill';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
+import type { VideoTool } from '@/components/video/VideoToolsMenu';
+import { VideoToolsMenu } from '@/components/video/VideoToolsMenu';
 import { useElements } from '@/hooks/useElements';
 import { useGenerationStream } from '@/hooks/useGenerationStream';
 import {
   useCreateGeneration,
   useDeleteGeneration,
+  useExtendGeneration,
   useGenerations,
   useUpdateGeneration,
 } from '@/hooks/useGenerations';
@@ -38,6 +42,9 @@ import { useLanguage } from '@/i18n/LanguageContext';
 import { assetReferenceCapacity, previewReferences } from '@/lib/references';
 
 const PROMPT_MAX_LENGTH = 8000;
+
+/** Named so the menu stays honest: these are designed, not yet built. */
+const UNBUILT_TOOLS: readonly VideoTool[] = ['removeObject', 'insertObject', 'outpaint', 'upscale'];
 
 export function StudioPage() {
   const { t } = useLanguage();
@@ -59,6 +66,9 @@ export function StudioPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendError, setExtendError] = useState('');
 
   const { data: elements } = useElements();
   const resultsHeadingId = useId();
@@ -66,6 +76,7 @@ export function StudioPage() {
   const createGeneration = useCreateGeneration();
   const updateGeneration = useUpdateGeneration();
   const deleteGeneration = useDeleteGeneration();
+  const extendGeneration = useExtendGeneration();
   const stream = useGenerationStream(activeId);
 
   // Every selection the previous model allowed has to be re-checked against the
@@ -153,6 +164,29 @@ export function StudioPage() {
     } catch (generationError) {
       setError(
         generationError instanceof Error ? generationError.message : t('studio.generateFailed'),
+      );
+    }
+  }
+
+  /**
+   * Continues the clip on screen, then follows the continuation.
+   *
+   * Selecting the new clip is the point: it is what the user asked to see, and leaving the
+   * player on the source would make a working continuation look like nothing happened.
+   */
+  async function extend(source: GenerationDto, prompt: string) {
+    setExtendError('');
+    try {
+      const created = await extendGeneration.mutateAsync({
+        id: source.id,
+        input: prompt ? { prompt } : {},
+      });
+      setExtendOpen(false);
+      setActiveId(created.id);
+      setSelectedId(created.id);
+    } catch (extendFailure) {
+      setExtendError(
+        extendFailure instanceof Error ? extendFailure.message : t('tools.extendFailed'),
       );
     }
   }
@@ -269,9 +303,40 @@ export function StudioPage() {
               src={selected.resultVideoUrl}
               poster={selected.referenceImageUrls[0]}
               downloadName={`${selected.id}.mp4`}
+              tools={
+                <VideoToolsMenu
+                  open={toolsOpen}
+                  onOpenChange={setToolsOpen}
+                  busyTool={extendGeneration.isPending ? 'extend' : null}
+                  // Everything but continuation is still server-side work; showing them
+                  // dimmed says what is coming without pretending it is here.
+                  unavailable={
+                    getVeoModel(selected.modelId)?.supportsExtension
+                      ? UNBUILT_TOOLS
+                      : [...UNBUILT_TOOLS, 'extend']
+                  }
+                  onPick={(tool) => {
+                    if (tool === 'extend') {
+                      setExtendError('');
+                      setExtendOpen(true);
+                    }
+                  }}
+                />
+              }
             />
             <p className="text-sm opacity-80">{selected.prompt}</p>
           </div>
+        ) : null}
+
+        {selected ? (
+          <ExtendClipDialog
+            open={extendOpen}
+            source={selected}
+            pending={extendGeneration.isPending}
+            error={extendError}
+            onClose={() => setExtendOpen(false)}
+            onConfirm={(prompt) => void extend(selected, prompt)}
+          />
         ) : null}
 
         <section className="flex flex-col gap-3" aria-labelledby={resultsHeadingId}>
