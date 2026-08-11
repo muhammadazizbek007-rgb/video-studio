@@ -16,6 +16,7 @@ type GenerationModule = typeof import('../db/models/generation.js');
 type UserModule = typeof import('../db/models/user.js');
 
 const PORTED_TOOLS = [
+  'continue_video',
   'generate_image',
   'generate_video',
   'generate_video_with_references',
@@ -238,6 +239,44 @@ describe('mcp bearer tokens', () => {
     await expect(
       authModule.resolveMcpUser({ headers: { authorization: `Bearer ${token}` } }),
     ).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+});
+
+describe('continue_video', () => {
+  it('continues a finished clip as a new video, naming what it grew from', async () => {
+    const source = await generateVideo(aliceClient, 'кот на подоконнике');
+    const sourceId = String(source.generation_id);
+
+    // The fake driver settles a clip on the first poll, which is what makes it continuable.
+    await aliceClient.callTool({
+      name: 'get_video_status',
+      arguments: { generation_id: sourceId },
+    });
+
+    const payload = payloadOf(
+      await aliceClient.callTool({
+        name: 'continue_video',
+        arguments: { generation_id: sourceId, prompt: 'он спрыгивает вниз' },
+      }),
+    );
+
+    expect(payload.generation_id).not.toBe(sourceId);
+    expect(payload.continues).toBe(sourceId);
+    expect(payload.prompt).toBe('он спрыгивает вниз');
+    // Inherited, not restated: the shot already exists and its look is settled.
+    expect(payload.model).toBe(source.model);
+    expect(payload.aspect_ratio).toBe(source.aspect_ratio);
+  });
+
+  it('refuses a clip that has not finished', async () => {
+    const source = await generateVideo(aliceClient, 'ещё не готово');
+
+    const result = await aliceClient.callTool({
+      name: 'continue_video',
+      arguments: { generation_id: String(source.generation_id) },
+    });
+
+    expect(toolResultSchema.parse(result).isError).toBe(true);
   });
 });
 

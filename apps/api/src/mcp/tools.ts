@@ -5,6 +5,7 @@ import type {
   CameraMotion,
   CreateGenerationInput,
   VideoAspectRatio,
+  VideoDuration,
   VideoStylePreset,
 } from '@video-studio/shared';
 import {
@@ -38,6 +39,7 @@ import { buildImagePrompt } from '../prompt.js';
 import type { GenerationDocument } from '../services/generations.js';
 import {
   createGeneration,
+  extendGeneration,
   listGenerations,
   requireOwned,
   syncGeneration,
@@ -330,6 +332,49 @@ function registerVideoTools(server: McpServer, user: AuthUser): void {
         return {
           ...summariseGeneration(doc),
           message: `Video generation started. Poll get_video_status("${doc._id.toString()}") — usually 1-3 minutes.`,
+        };
+      }),
+  );
+
+  server.registerTool(
+    'continue_video',
+    {
+      description:
+        'Continue a finished video from its own last second, producing a new clip that carries straight on from it. This is how a video longer than one generation is made: generate 8 seconds, continue it, continue that, and so on. Veo reads the real footage rather than a description, so the hand stays where it was and the light does not jump — which is why this holds together where editing separate clips together does not. The source clip is left untouched and the continuation arrives as its own video. The model, frame shape, style and camera are inherited from the source and cannot be changed here; changing the look halfway is what stops it reading as one shot.',
+      inputSchema: {
+        generation_id: z
+          .string()
+          .min(1)
+          .describe('Id of a finished video to continue, as returned by generate_video'),
+        prompt: z
+          .string()
+          .min(1)
+          .max(8000)
+          .optional()
+          .describe(
+            'What happens in the added seconds. Leave it out and the action simply carries on.',
+          ),
+        duration: z
+          .number()
+          .int()
+          .min(1)
+          .max(60)
+          .optional()
+          .describe('Length of the continuation in seconds, snapped to what the model supports'),
+      },
+    },
+    async (args) =>
+      await run(async () => {
+        await assertGenerationBudget(user);
+        const doc = await extendGeneration(user, args.generation_id, {
+          ...(args.prompt ? { prompt: args.prompt } : {}),
+          ...(args.duration ? { duration: args.duration as VideoDuration } : {}),
+        });
+
+        return {
+          ...summariseGeneration(doc),
+          continues: args.generation_id,
+          message: `Continuation started. Poll get_video_status("${doc._id.toString()}") — usually 1-3 minutes. Continue again from this new id to go longer.`,
         };
       }),
   );
