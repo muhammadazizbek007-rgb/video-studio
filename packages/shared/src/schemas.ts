@@ -103,6 +103,20 @@ export const updateGenerationSchema = z.object({
 export type UpdateGenerationInput = z.infer<typeof updateGenerationSchema>;
 
 /**
+ * Continuing a finished clip from its own last second.
+ *
+ * Everything else — model, aspect ratio, style, camera — is inherited from the clip being
+ * continued rather than re-stated: the shot already exists, and letting a caller change its
+ * look halfway is how a continuation stops looking like the same take.
+ */
+export const extendGenerationSchema = z.object({
+  /** What happens next. Omitted means "carry on", and the source's own prompt is reused. */
+  prompt: z.string().min(1).max(8000).optional(),
+  duration: videoDurationSchema.optional(),
+});
+export type ExtendGenerationInput = z.infer<typeof extendGenerationSchema>;
+
+/**
  * Image generation — the Cinema Studio tab's Image mode.
  *
  * Imagen answers in seconds rather than minutes, so unlike a video generation this is a

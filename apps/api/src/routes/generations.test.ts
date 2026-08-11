@@ -355,3 +355,92 @@ describe('generation routes', () => {
     expect(refreshed.resultVideoUrl).toBeTruthy();
   });
 });
+
+describe('POST /api/generations/:id/extend', () => {
+  /** A continuation needs a clip that actually finished, so the fake driver is run first. */
+  async function completedGeneration(cookie: string): Promise<GenerationDto> {
+    const created = await createGeneration(cookie);
+    const refreshed = await app.inject({
+      method: 'POST',
+      url: `/api/generations/${created.id}/refresh`,
+      headers: { cookie },
+    });
+    return parse<GenerationDto>(refreshed.body);
+  }
+
+  it('continues a finished clip as a new generation, leaving the source alone', async () => {
+    const { cookie } = await signIn('extender@example.com');
+    const source = await completedGeneration(cookie);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/generations/${source.id}/extend`,
+      headers: { cookie },
+      payload: { prompt: 'он поворачивается к камере' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const extension = parse<GenerationDto>(response.body);
+    expect(extension.id).not.toBe(source.id);
+    expect(extension.prompt).toBe('он поворачивается к камере');
+    // The look is inherited, not restated: a continuation that changed style mid-take
+    // would stop reading as the same shot.
+    expect(extension.modelId).toBe(source.modelId);
+    expect(extension.aspectRatio).toBe(source.aspectRatio);
+    expect(extension.stylePreset).toBe(source.stylePreset);
+
+    const untouched = await app.inject({
+      method: 'GET',
+      url: `/api/generations/${source.id}`,
+      headers: { cookie },
+    });
+    expect(parse<GenerationDto>(untouched.body).resultVideoUrl).toBe(source.resultVideoUrl);
+  });
+
+  it('carries the source prompt when the caller says nothing', async () => {
+    const { cookie } = await signIn('carryover@example.com');
+    const source = await completedGeneration(cookie);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/generations/${source.id}/extend`,
+      headers: { cookie },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(parse<GenerationDto>(response.body).prompt).toBe(source.prompt);
+  });
+
+  // There is no last frame to continue from until the clip has one.
+  it('refuses a clip that has not finished', async () => {
+    const { cookie } = await signIn('tooearly@example.com');
+    const pending = await createGeneration(cookie);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/generations/${pending.id}/extend`,
+      headers: { cookie },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain('finished');
+  });
+
+  // Same answer the rest of the routes give for another account's record: 403, not 404.
+  it('will not continue somebody else’s clip', async () => {
+    const owner = await signIn('owner-extend@example.com');
+    const stranger = await signIn('stranger-extend@example.com');
+    const source = await completedGeneration(owner.cookie);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/generations/${source.id}/extend`,
+      headers: { cookie: stranger.cookie },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+});

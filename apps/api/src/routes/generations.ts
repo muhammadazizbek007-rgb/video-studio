@@ -1,6 +1,7 @@
 import type { GenerationDto } from '@video-studio/shared';
 import {
   createGenerationSchema,
+  extendGenerationSchema,
   paginationSchema,
   updateGenerationSchema,
 } from '@video-studio/shared';
@@ -15,6 +16,7 @@ import { logger } from '../logger.js';
 import {
   createGeneration,
   deleteGeneration,
+  extendGeneration,
   isTerminalStatus,
   listGenerations,
   requireOwned,
@@ -72,6 +74,21 @@ export const generationRoutes: FastifyPluginAsyncZod = async (fastify) => {
     async (request) => {
       const user = requireAuthUser(request);
       return toGenerationDto(await requireOwned(request.params.id, user.id));
+    },
+  );
+
+  // Behind the same limiter as a fresh generation: a continuation costs Vertex exactly what
+  // a generation costs, and is the obvious way to run up a bill in a loop.
+  fastify.post(
+    '/:id/extend',
+    {
+      preHandler: [fastify.authenticate, createLimiter],
+      schema: { params: idParamsSchema, body: extendGenerationSchema },
+    },
+    async (request, reply) => {
+      const user = requireAuthUser(request);
+      const doc = await extendGeneration(user, request.params.id, request.body);
+      return await reply.code(201).send(toGenerationDto(doc));
     },
   );
 

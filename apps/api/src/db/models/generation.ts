@@ -55,6 +55,8 @@ export interface GenerationDoc {
   awaitingSubmission?: boolean;
   /** How many times the submission was refused by the quota and re-queued. */
   submissionAttempts?: number;
+  /** The clip this one continues from, when it was made by extending rather than generating. */
+  extendedFromId?: Types.ObjectId;
   /** Set when the generation was started from a storyboard segment rather than the studio. */
   storyboardId?: Types.ObjectId;
   segmentIndex?: number;
@@ -100,6 +102,7 @@ const generationSchema = new Schema<GenerationDoc>(
     vertexModel: { type: String },
     awaitingSubmission: { type: Boolean },
     submissionAttempts: { type: Number },
+    extendedFromId: { type: Schema.Types.ObjectId, ref: 'Generation' },
     storyboardId: { type: Schema.Types.ObjectId, ref: 'Storyboard' },
     segmentIndex: { type: Number },
   },

@@ -23,7 +23,7 @@ import { StoryboardModel } from '../db/models/storyboard.js';
 import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
-import { checkVeoOperation, startVeoOperation } from '../vertex/veo.js';
+import { checkVeoOperation, startVeoExtension, startVeoOperation } from '../vertex/veo.js';
 import { submitToVertex } from './veoQueue.js';
 
 export type GenerationDocument = HydratedDocument<GenerationDoc>;
@@ -178,6 +178,87 @@ export async function createGeneration(
         'could not persist the generation start failure',
       );
     });
+    throw error;
+  }
+}
+
+/**
+ * Continues a finished clip, as a new generation of its own.
+ *
+ * The source is left untouched: a continuation can disappoint, and overwriting the clip the
+ * user already has to make room for it would be the one mistake there is no undo for. The
+ * new record carries the source's settings so the two read as one shot in the list, and
+ * points back at what it grew from.
+ */
+export async function extendGeneration(
+  user: AuthUser,
+  sourceId: string,
+  input: { prompt?: string; duration?: number },
+): Promise<GenerationDocument> {
+  const source = await requireOwned(sourceId, user.id);
+
+  if (source.status !== 'completed' || !source.resultVideoUrl) {
+    throw new ApiError('invalid-argument', 'Only a finished clip can be continued.');
+  }
+
+  const spec = resolveModel(source.modelId);
+  if (!spec.supportsExtension) {
+    throw new ApiError('invalid-argument', `${spec.name} cannot continue an existing clip.`);
+  }
+
+  const duration = resolveDuration(spec, input.duration ?? source.duration);
+  // Silence means "carry on doing what you were doing", which is also what Veo does with a
+  // continuation prompt it has no instruction for.
+  const prompt = input.prompt?.trim() || source.prompt;
+
+  const doc = await GenerationModel.create({
+    userId: toObjectId(user.id, 'Account'),
+    prompt,
+    modelId: spec.id,
+    mode: source.mode,
+    aspectRatio: source.aspectRatio,
+    duration,
+    stylePreset: source.stylePreset,
+    cameraMotion: source.cameraMotion,
+    status: 'pending',
+    saved: false,
+    // The continuation starts on the source's closing frame, so its poster is the source's.
+    referenceImageUrls: source.referenceImageUrls.slice(0, 1),
+    elements: source.elements,
+    referenceCount: 0,
+    extendedFromId: source._id,
+  });
+
+  try {
+    const started = await submitToVertex({
+      modelId: spec.id,
+      onAttempt: async (attempt) => {
+        doc.awaitingSubmission = true;
+        doc.submissionAttempts = attempt;
+        await doc.save().catch(() => undefined);
+      },
+      submit: () =>
+        startVeoExtension({
+          generationId: doc._id.toString(),
+          userId: user.id,
+          prompt,
+          modelId: spec.id,
+          sourceVideoUrl: source.resultVideoUrl ?? '',
+          duration,
+        }),
+    });
+
+    doc.status = 'processing';
+    doc.awaitingSubmission = false;
+    doc.vertexOperationName = started.operationName;
+    doc.vertexModel = started.vertexModel;
+    await doc.save();
+    return doc;
+  } catch (error) {
+    doc.status = 'failed';
+    doc.awaitingSubmission = false;
+    doc.errorMessage = messageOf(error);
+    await doc.save().catch(() => undefined);
     throw error;
   }
 }

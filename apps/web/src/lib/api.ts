@@ -65,6 +65,7 @@ const veoModelSpecSchema = z.object({
   supportsLastFrame: z.boolean(),
   supportsReferenceImages: z.boolean(),
   maxAssetReferences: z.number().int().min(0),
+  supportsExtension: z.boolean(),
   maxResolution: z.string(),
 });
 

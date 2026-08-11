@@ -41,6 +41,17 @@ export interface VeoStartInput {
   lastFrameImageUrl?: string;
 }
 
+export interface VeoExtendInput {
+  generationId: string;
+  userId: string;
+  /** What should happen in the added seconds. Veo continues from the last frame regardless. */
+  prompt: string;
+  modelId: string;
+  /** The clip being continued, as we stored it. */
+  sourceVideoUrl: string;
+  duration: number;
+}
+
 export type VeoPollResult =
   | { status: 'processing' }
   | { status: 'completed'; videoUrl: string; storagePath: string }
@@ -51,12 +62,20 @@ interface InlineImage {
   mimeType: string;
 }
 
+/** Same shape as an inline image; named apart because the size ceilings differ by an order. */
+interface InlineVideo {
+  bytesBase64Encoded: string;
+  mimeType: string;
+}
+
 const DEFAULT_IMAGE_MIME_TYPE = 'image/jpeg';
 const DATA_URL_PATTERN = /^data:([^;,]+)?(;base64)?,(.*)$/s;
 const GCS_URI_PATTERN = /^gs:\/\/([^/]+)\/(.+)$/;
 
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** A clip travels whole and base64 costs a third on top, so this sits well above the image cap. */
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -188,6 +207,39 @@ async function readStoredImage(url: string): Promise<InlineImage | null> {
     bytesBase64Encoded: data.toString('base64'),
     mimeType: EXTENSION_MIME_TYPES[extname(key).toLowerCase()] ?? DEFAULT_IMAGE_MIME_TYPE,
   };
+}
+
+/**
+ * Reads a clip we generated back off the disk, ready to be handed to Veo again.
+ *
+ * A whole video inline is heavier than a reference photo, so it gets its own ceiling: an
+ * 8-second 1080p clip is a few megabytes, and base64 adds a third on top of that. The cap
+ * is what keeps a request from growing past what Vertex will accept.
+ *
+ * Only clips this deployment stored can be continued. A video we never served has no local
+ * path, and downloading an arbitrary URL to feed it back to Veo is a different feature with
+ * a different threat model.
+ */
+async function readStoredVideo(url: string): Promise<InlineVideo> {
+  const key = storageKeyFromUrl(url);
+  const path = key ? getStorage().localPath?.(key) : undefined;
+  if (!path) {
+    throw new ApiError('invalid-argument', 'Only a clip stored by this studio can be continued.');
+  }
+
+  const data = await readFile(path).catch(() => null);
+  if (!data) {
+    throw new ApiError('invalid-argument', 'The clip being continued is no longer on disk.');
+  }
+
+  if (data.byteLength > MAX_VIDEO_BYTES) {
+    throw new ApiError(
+      'invalid-argument',
+      `The clip exceeds the ${MAX_VIDEO_BYTES} byte limit for continuation.`,
+    );
+  }
+
+  return { bytesBase64Encoded: data.toString('base64'), mimeType: 'video/mp4' };
 }
 
 /** Veo accepts reference images only as inline base64, never as a URL. */
@@ -331,6 +383,75 @@ export async function startVeoOperation(
   const operationName = asNonEmptyString(payload.name);
   if (!operationName) {
     throw new ApiError('internal', 'Veo accepted the request but returned no operation name.');
+  }
+
+  return { operationName, vertexModel: spec.vertexModel };
+}
+
+/**
+ * Continues a clip we already made, from its own last second.
+ *
+ * This is what a request longer than eight seconds is actually made of. Stitching separate
+ * clips cannot hold continuity because the model never sees the previous one — only the
+ * words describing it. Here Veo reads the real footage, so the hand stays where it was and
+ * the light does not jump.
+ *
+ * The style and camera presets are deliberately absent: the shot already exists and its look
+ * is established, so re-stating a preset would only invite a change of look mid-take. The
+ * continuity guardrail still rides along, because a continued shot can morph exactly like a
+ * fresh one.
+ */
+export async function startVeoExtension(
+  input: VeoExtendInput,
+): Promise<{ operationName: string; vertexModel: string }> {
+  const spec = ((): VeoModelSpec => {
+    try {
+      return requireVeoModel(input.modelId);
+    } catch (err) {
+      return rejectAsInvalidArgument(err);
+    }
+  })();
+
+  if (!spec.supportsExtension) {
+    throw new ApiError('invalid-argument', `${spec.name} cannot continue an existing clip.`);
+  }
+
+  const duration = resolveDuration(spec, input.duration);
+
+  if (getEnv().fakeVertex) {
+    return startFakeVeoOperation({
+      generationId: input.generationId,
+      userId: input.userId,
+      prompt: input.prompt,
+      vertexModel: spec.vertexModel,
+      aspectRatio: '16:9',
+      duration,
+    });
+  }
+
+  const video = await readStoredVideo(input.sourceVideoUrl);
+
+  const payload = await callVertex<Record<string, unknown>>(
+    spec.vertexModel,
+    ':predictLongRunning',
+    {
+      instances: [
+        {
+          prompt: buildVeoPrompt({ prompt: input.prompt, supportsAudio: spec.supportsAudio }),
+          video,
+        },
+      ],
+      parameters: {
+        durationSeconds: duration,
+        sampleCount: 1,
+        negativePrompt: buildNegativePrompt(),
+      },
+    },
+  );
+
+  const operationName = asNonEmptyString(payload.name);
+  if (!operationName) {
+    throw new ApiError('internal', 'Veo accepted the continuation but returned no operation name.');
   }
 
   return { operationName, vertexModel: spec.vertexModel };

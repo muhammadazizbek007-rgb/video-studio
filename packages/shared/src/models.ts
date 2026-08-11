@@ -19,6 +19,12 @@ export interface VeoModelSpec {
   supportsReferenceImages: boolean;
   /** Asset reference images accepted per request; 3 is the Veo 3.1 ceiling. */
   maxAssetReferences: number;
+  /**
+   * Whether a finished clip can be handed back to the model to continue from its own last
+   * second. This is what a video longer than one generation is built from — stitching
+   * separate clips cannot hold continuity, because nothing there ever sees the footage.
+   */
+  supportsExtension: boolean;
   maxResolution: string;
 }
 
@@ -36,6 +42,7 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsLastFrame: true,
     supportsReferenceImages: true,
     maxAssetReferences: 3,
+    supportsExtension: true,
     maxResolution: '1080p',
   },
   'veo-3.1-fast': {
@@ -51,6 +58,7 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsLastFrame: true,
     supportsReferenceImages: true,
     maxAssetReferences: 3,
+    supportsExtension: true,
     maxResolution: '1080p',
   },
   'veo-3.1-lite': {
@@ -69,6 +77,7 @@ export const VEO_MODELS: Readonly<Record<string, VeoModelSpec>> = {
     supportsLastFrame: false,
     supportsReferenceImages: true,
     maxAssetReferences: 3,
+    supportsExtension: false,
     maxResolution: '720p',
   },
 };
