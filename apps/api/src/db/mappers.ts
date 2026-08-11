@@ -75,6 +75,7 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   assignOptional(dto, 'resultVideoUrl', doc.resultVideoUrl);
   assignOptional(dto, 'errorMessage', doc.errorMessage);
   assignOptional(dto, 'lastFrameImageUrl', doc.lastFrameImageUrl);
+  assignOptional(dto, 'seed', doc.seed);
   return dto;
 }
 

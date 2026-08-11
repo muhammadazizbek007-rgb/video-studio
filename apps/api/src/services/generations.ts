@@ -130,6 +130,7 @@ export async function createGeneration(
     saved: false,
     referenceImageUrls,
     lastFrameImageUrl: input.lastFrameImageUrl,
+    seed: input.seed,
     elements: resolved.refs,
     referenceCount: referenceImageUrls.length,
   });
@@ -157,6 +158,7 @@ export async function createGeneration(
           firstFrameImageUrl: resolved.firstFrameImageUrl ?? undefined,
           assetReferenceUrls: resolved.assetImageUrls,
           lastFrameImageUrl: input.lastFrameImageUrl,
+          seed: input.seed,
         }),
     });
 
@@ -311,6 +313,7 @@ export async function resumeSubmission(doc: GenerationDocument): Promise<Generat
           firstFrameImageUrl,
           assetReferenceUrls,
           lastFrameImageUrl: doc.lastFrameImageUrl,
+          seed: doc.seed,
         }),
     });
 

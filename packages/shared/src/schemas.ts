@@ -63,6 +63,8 @@ export const generationDtoSchema = z.object({
   saved: z.boolean(),
   referenceImageUrls: z.array(z.string()),
   lastFrameImageUrl: z.string().optional(),
+  /** The dice roll this clip came from; re-using it reproduces the clip. */
+  seed: z.number().int().optional(),
   elements: z.array(elementRefSchema),
   referenceCount: z.number().int().min(0),
   createdAt: z.iso.datetime(),
@@ -94,6 +96,12 @@ export const createGenerationSchema = z.object({
    * frame, so that is all this still means. Accepted so a stale bundle keeps working.
    */
   referenceImageUrls: z.array(z.string().min(1)).max(3).optional(),
+  /**
+   * Fixes the model's dice. The same seed with the same prompt and settings returns the
+   * same clip, which is what makes "keep this shot, change one word" possible at all —
+   * without it every re-run is a fresh roll and the thing you liked is gone.
+   */
+  seed: z.number().int().min(0).max(4_294_967_295).optional(),
 });
 export type CreateGenerationInput = z.infer<typeof createGenerationSchema>;
 

@@ -116,6 +116,14 @@ describe('retryGenerationInput', () => {
     expect(retryGenerationInput(source).lastFrameImageUrl).toBe('/media/last.png');
   });
 
+  // Deliberate: a retry is a fresh roll. Carrying the seed would reproduce the same clip,
+  // which is the opposite of what someone clicking "try again" on a failure is asking for.
+  // Reproducing a clip exactly is a different act and needs its own way in.
+  it('does not carry the seed, so a retry is a new attempt', () => {
+    const source = generation({ seed: 12345 });
+    expect(retryGenerationInput(source).seed).toBeUndefined();
+  });
+
   // `mode` is the server's conclusion, not the user's choice: a record that failed as
   // reference_to_video must be free to come back as image_to_video if the element is gone.
   it('leaves the mode for the server to derive again', () => {

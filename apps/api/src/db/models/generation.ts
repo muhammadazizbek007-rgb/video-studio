@@ -39,6 +39,8 @@ export interface GenerationDoc {
   saved: boolean;
   referenceImageUrls: string[];
   lastFrameImageUrl?: string;
+  /** The dice roll handed to Veo; kept so the clip can be reproduced exactly. */
+  seed?: number;
   elements: ElementRef[];
   referenceCount: number;
   vertexOperationName?: string;
@@ -96,6 +98,7 @@ const generationSchema = new Schema<GenerationDoc>(
     saved: { type: Boolean, required: true, default: false },
     referenceImageUrls: { type: [String], required: true, default: [] },
     lastFrameImageUrl: { type: String },
+    seed: { type: Number },
     elements: { type: [elementRefSubSchema], required: true, default: [] },
     referenceCount: { type: Number, required: true, default: 0 },
     vertexOperationName: { type: String },

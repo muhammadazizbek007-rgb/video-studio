@@ -39,6 +39,8 @@ export interface VeoStartInput {
    */
   assetReferenceUrls?: string[];
   lastFrameImageUrl?: string;
+  /** Fixes the model's dice so the same request returns the same clip. */
+  seed?: number;
 }
 
 export interface VeoExtendInput {
@@ -373,6 +375,7 @@ export async function startVeoOperation(
     negativePrompt: buildNegativePrompt(input.cameraMotion),
   };
   if (spec.supportsAudio) parameters.generateAudio = true;
+  if (input.seed !== undefined) parameters.seed = input.seed;
 
   const payload = await callVertex<Record<string, unknown>>(
     spec.vertexModel,
