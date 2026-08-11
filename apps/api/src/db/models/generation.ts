@@ -43,6 +43,18 @@ export interface GenerationDoc {
   referenceCount: number;
   vertexOperationName?: string;
   vertexModel?: string;
+  /**
+   * Waiting for a submission slot, not for Vertex.
+   *
+   * Vertex accepts one `predictLongRunning` per minute per base model, so a second clip
+   * started in the same minute has to wait its turn. Without this flag such a row is
+   * indistinguishable from one that was handed over and lost its operation name — and
+   * `syncGeneration` fails those on sight, which would kill every queued clip 30 seconds
+   * after it was asked for.
+   */
+  awaitingSubmission?: boolean;
+  /** How many times the submission was refused by the quota and re-queued. */
+  submissionAttempts?: number;
   /** Set when the generation was started from a storyboard segment rather than the studio. */
   storyboardId?: Types.ObjectId;
   segmentIndex?: number;
@@ -86,6 +98,8 @@ const generationSchema = new Schema<GenerationDoc>(
     referenceCount: { type: Number, required: true, default: 0 },
     vertexOperationName: { type: String },
     vertexModel: { type: String },
+    awaitingSubmission: { type: Boolean },
+    submissionAttempts: { type: Number },
     storyboardId: { type: Schema.Types.ObjectId, ref: 'Storyboard' },
     segmentIndex: { type: Number },
   },

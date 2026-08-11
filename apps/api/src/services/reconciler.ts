@@ -2,7 +2,7 @@ import { GenerationModel } from '../db/models/generation.js';
 import { getEnv } from '../env.js';
 import { isApiError } from '../errors.js';
 import { logger } from '../logger.js';
-import { syncGeneration } from './generations.js';
+import { resumeSubmission, syncGeneration } from './generations.js';
 
 /**
  * Advances generations nobody is watching.
@@ -34,6 +34,15 @@ export async function reconcileOnce(now: number = Date.now()): Promise<number> {
   let advanced = 0;
   for (const doc of stale) {
     try {
+      // The submission queue lives in memory, so a row still marked as waiting for a slot
+      // after a restart is standing in a queue that no longer exists. Put it back in line
+      // rather than polling an operation it never got.
+      if (doc.awaitingSubmission) {
+        const resumed = await resumeSubmission(doc);
+        if (resumed.status === 'failed') advanced += 1;
+        continue;
+      }
+
       const synced = await syncGeneration(doc);
       if (synced.status === 'completed' || synced.status === 'failed') advanced += 1;
     } catch (error) {

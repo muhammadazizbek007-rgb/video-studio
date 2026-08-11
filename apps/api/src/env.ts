@@ -25,6 +25,10 @@ export interface Env {
   generationRateLimitPerMinute: number;
   reconcilerEnabled: boolean;
   reconcilerIntervalMs: number;
+  /** Minimum gap between two Vertex submissions for the same base model. */
+  veoSubmitIntervalMs: number;
+  /** How many times a submission may be refused by the quota before the clip is failed. */
+  veoSubmitMaxAttempts: number;
   ffmpegPath: string;
 }
 
@@ -97,6 +101,13 @@ const rawSchema = z.object({
   GENERATION_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(1000).default(40),
   RECONCILER_ENABLED: booleanish,
   RECONCILER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(600_000).default(30_000),
+  // Vertex allows one predictLongRunning per minute per base model, and refuses the rest
+  // with a 429 rather than queueing them. The default mirrors that ceiling exactly; raise
+  // it here after Google grants a higher quota.
+  VEO_SUBMIT_INTERVAL_MS: z.coerce.number().int().min(0).max(600_000).default(60_000),
+  // A clip waiting behind a full campaign can be refused many times before its turn, and
+  // giving up early is what the queue exists to prevent.
+  VEO_SUBMIT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(20),
   FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
 });
 
@@ -221,6 +232,10 @@ function buildEnv(source: NodeJS.ProcessEnv): Env {
     // Off under test: a sweep firing inside a test run would race its fixtures.
     reconcilerEnabled: toBoolean(raw.RECONCILER_ENABLED, data.NODE_ENV !== 'test'),
     reconcilerIntervalMs: data.RECONCILER_INTERVAL_MS,
+    // The fake driver never reaches Vertex, so spacing submissions would only make the
+    // offline path and the test suite slow for no reason.
+    veoSubmitIntervalMs: fakeVertex ? 0 : data.VEO_SUBMIT_INTERVAL_MS,
+    veoSubmitMaxAttempts: data.VEO_SUBMIT_MAX_ATTEMPTS,
     ffmpegPath: data.FFMPEG_PATH,
   };
 }

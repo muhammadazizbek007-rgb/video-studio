@@ -7,6 +7,7 @@ import type {
   VideoGenerationStatus,
 } from '@video-studio/shared';
 import {
+  generationFirstFrameImageUrl,
   getVeoModel,
   resolveAspectRatio,
   resolveDuration,
@@ -23,6 +24,7 @@ import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
 import { checkVeoOperation, startVeoOperation } from '../vertex/veo.js';
+import { submitToVertex } from './veoQueue.js';
 
 export type GenerationDocument = HydratedDocument<GenerationDoc>;
 
@@ -133,26 +135,39 @@ export async function createGeneration(
   });
 
   try {
-    const started = await startVeoOperation({
-      generationId: doc._id.toString(),
-      userId: user.id,
-      prompt: resolved.promptForModel,
+    const started = await submitToVertex({
       modelId: spec.id,
-      aspectRatio,
-      duration,
-      stylePreset: input.stylePreset,
-      cameraMotion: input.cameraMotion,
-      firstFrameImageUrl: resolved.firstFrameImageUrl ?? undefined,
-      assetReferenceUrls: resolved.assetImageUrls,
-      lastFrameImageUrl: input.lastFrameImageUrl,
+      // Recorded before each wait so the row reads as queued rather than as one that was
+      // handed over and lost — which is what the reconciler would otherwise conclude.
+      onAttempt: async (attempt) => {
+        doc.awaitingSubmission = true;
+        doc.submissionAttempts = attempt;
+        await doc.save().catch(() => undefined);
+      },
+      submit: () =>
+        startVeoOperation({
+          generationId: doc._id.toString(),
+          userId: user.id,
+          prompt: resolved.promptForModel,
+          modelId: spec.id,
+          aspectRatio,
+          duration,
+          stylePreset: input.stylePreset,
+          cameraMotion: input.cameraMotion,
+          firstFrameImageUrl: resolved.firstFrameImageUrl ?? undefined,
+          assetReferenceUrls: resolved.assetImageUrls,
+          lastFrameImageUrl: input.lastFrameImageUrl,
+        }),
     });
 
     doc.status = 'processing';
+    doc.awaitingSubmission = false;
     doc.vertexOperationName = started.operationName;
     doc.vertexModel = started.vertexModel;
     await doc.save();
     return doc;
   } catch (error) {
+    doc.awaitingSubmission = false;
     // The client watches the record, not this HTTP response — a start failure that
     // only ever surfaced here would leave the row stuck on 'pending' forever.
     doc.status = 'failed';
@@ -164,6 +179,72 @@ export async function createGeneration(
       );
     });
     throw error;
+  }
+}
+
+/**
+ * Sends a clip that was still waiting for its slot when the process went away.
+ *
+ * The queue is in memory, so a deploy or a crash strands whatever was standing in it. The
+ * record survives with everything the submission needs, so the sweep can put it back in
+ * line rather than failing a campaign's worth of clips over a restart.
+ *
+ * The mentions are not resolved again: the record already carries what they resolved to,
+ * and re-reading the library now could quietly attach a different photo than the one the
+ * user was shown when they asked for the clip.
+ */
+export async function resumeSubmission(doc: GenerationDocument): Promise<GenerationDocument> {
+  const spec = getVeoModel(doc.modelId);
+  if (!spec) {
+    doc.status = 'failed';
+    doc.awaitingSubmission = false;
+    doc.errorMessage = `Unknown video model: ${doc.modelId}.`;
+    await doc.save();
+    return doc;
+  }
+
+  const firstFrameImageUrl = generationFirstFrameImageUrl({
+    referenceImageUrls: doc.referenceImageUrls,
+    elements: doc.elements,
+  } as Parameters<typeof generationFirstFrameImageUrl>[0]);
+
+  const assetReferenceUrls = doc.referenceImageUrls.filter((url) => url !== firstFrameImageUrl);
+
+  try {
+    const started = await submitToVertex({
+      modelId: spec.id,
+      onAttempt: async (attempt) => {
+        doc.submissionAttempts = attempt;
+        await doc.save().catch(() => undefined);
+      },
+      submit: () =>
+        startVeoOperation({
+          generationId: doc._id.toString(),
+          userId: doc.userId.toString(),
+          prompt: doc.enrichedPrompt ?? doc.prompt,
+          modelId: spec.id,
+          aspectRatio: doc.aspectRatio,
+          duration: doc.duration,
+          stylePreset: doc.stylePreset,
+          cameraMotion: doc.cameraMotion,
+          firstFrameImageUrl,
+          assetReferenceUrls,
+          lastFrameImageUrl: doc.lastFrameImageUrl,
+        }),
+    });
+
+    doc.status = 'processing';
+    doc.awaitingSubmission = false;
+    doc.vertexOperationName = started.operationName;
+    doc.vertexModel = started.vertexModel;
+    await doc.save();
+    return doc;
+  } catch (error) {
+    doc.status = 'failed';
+    doc.awaitingSubmission = false;
+    doc.errorMessage = messageOf(error);
+    await doc.save().catch(() => undefined);
+    return doc;
   }
 }
 
@@ -201,6 +282,10 @@ async function publishToStoryboard(doc: GenerationDocument): Promise<void> {
 
 export async function syncGeneration(doc: GenerationDocument): Promise<GenerationDocument> {
   if (isTerminalStatus(doc.status)) return doc;
+
+  // Still queued for a submission slot: there is no operation to poll yet, and failing it
+  // here is exactly the mistake this flag exists to prevent.
+  if (doc.awaitingSubmission) return doc;
 
   const { vertexModel, vertexOperationName } = doc;
   if (!vertexModel || !vertexOperationName) {
