@@ -73,8 +73,13 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - data
-      - edge
+      data:
+      # Compose names every service after itself, so `api` and `web` on a shared network
+      # belong to whoever attached first. Another stack on this host did exactly that and
+      # took half of gadgetpro.uz with it. These aliases cannot be claimed by accident.
+      edge:
+        aliases:
+          - video-studio-api
     logging: *logging
 
   web:
@@ -87,7 +92,9 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - edge
+      edge:
+        aliases:
+          - video-studio-web
     logging: *logging
 
   nginx:
