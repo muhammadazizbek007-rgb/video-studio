@@ -531,6 +531,29 @@ describe('VideoToolsMenu', () => {
     expect(onPick).toHaveBeenCalledWith('extend');
   });
 
+  // Every other control in the player's row stays put and greys out when there is nothing
+  // to act on. A button that disappears instead reads as a feature that was never built.
+  it('stays in the row when there is nothing to act on, greyed rather than gone', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderWithProviders(
+      <VideoToolsMenu open={false} onOpenChange={onOpenChange} onPick={vi.fn()} disabled />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Инструменты' });
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toBeDisabled();
+
+    await user.click(trigger);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('keeps the panel shut while disabled, whatever the open flag says', () => {
+    renderWithProviders(<VideoToolsMenu open onOpenChange={vi.fn()} onPick={vi.fn()} disabled />);
+
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('closes on Escape, like every other dismissible thing on the page', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();

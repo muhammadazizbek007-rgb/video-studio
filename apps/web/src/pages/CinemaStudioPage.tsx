@@ -441,26 +441,29 @@ export function CinemaStudioPage() {
             data-testid="cinema-player"
           >
             <CinemaPlayer
-              renderTools={(segment) =>
-                segment ? (
-                  <VideoToolsMenu
-                    open={toolsOpen}
-                    onOpenChange={setToolsOpen}
-                    busyTool={extendGeneration.isPending ? 'extend' : null}
-                    // A segment with no generation behind it — an imported clip — has
-                    // nothing for Veo to continue from.
-                    unavailable={
-                      segmentGenerationIds[segment] ? UNBUILT_TOOLS : [...UNBUILT_TOOLS, 'extend']
+              renderTools={(segment) => (
+                <VideoToolsMenu
+                  open={toolsOpen}
+                  onOpenChange={setToolsOpen}
+                  busyTool={extendGeneration.isPending ? 'extend' : null}
+                  // Every other control in this row stays put and greys out on an empty
+                  // board; a button that disappears instead reads as a missing feature.
+                  disabled={!segment}
+                  // A segment with no generation behind it — an imported clip — has
+                  // nothing for Veo to continue from.
+                  unavailable={
+                    segment && segmentGenerationIds[segment]
+                      ? UNBUILT_TOOLS
+                      : [...UNBUILT_TOOLS, 'extend']
+                  }
+                  onPick={(tool) => {
+                    if (tool === 'extend' && segment) {
+                      setExtendError('');
+                      setExtendSegment(segment);
                     }
-                    onPick={(tool) => {
-                      if (tool === 'extend') {
-                        setExtendError('');
-                        setExtendSegment(segment);
-                      }
-                    }}
-                  />
-                ) : null
-              }
+                  }}
+                />
+              )}
               completedSegs={completedSegs}
               segmentVideos={segmentVideos}
               segmentDurations={segmentDurations}

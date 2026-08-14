@@ -38,6 +38,13 @@ export interface VideoToolsMenuProps {
   /** Tools the current clip or model cannot do. Shown, but dimmed and unclickable. */
   unavailable?: readonly VideoTool[];
   busyTool?: VideoTool | null;
+  /**
+   * Nothing to act on yet — an empty storyboard, a clip still rendering.
+   *
+   * Dimmed rather than removed, because every other control in the row does the same. A
+   * button that vanishes reads as a missing feature; one that greys out reads as "not yet".
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -55,6 +62,7 @@ export function VideoToolsMenu({
   onPick,
   unavailable = [],
   busyTool = null,
+  disabled = false,
 }: VideoToolsMenuProps) {
   const { t } = useLanguage();
   const menuId = useId();
@@ -68,7 +76,7 @@ export function VideoToolsMenu({
   const [maxHeight, setMaxHeight] = useState<number>();
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || disabled) return;
     const anchor = anchorRef.current;
     if (!anchor) return;
 
@@ -81,7 +89,7 @@ export function VideoToolsMenu({
     // Whichever way it opens, it stops at the edge of the window and scrolls inside itself.
     // A clipped item is unreachable; a scrolled one is merely further down.
     setMaxHeight(Math.max(MIN_PANEL_HEIGHT, Math.floor(goesUp ? above : below)));
-  }, [open]);
+  }, [open, disabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -111,11 +119,12 @@ export function VideoToolsMenu({
           aria-controls={open ? menuId : undefined}
           label={t('tools.title')}
           icon={<Sparkles />}
+          disabled={disabled}
           onClick={() => onOpenChange(!open)}
         />
       </Tooltip>
 
-      {open ? (
+      {open && !disabled ? (
         <>
           {/* Sibling, not parent: an outside click must not fall through to the panel. */}
           <button
