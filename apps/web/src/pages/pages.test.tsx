@@ -65,6 +65,23 @@ vi.mock('@/hooks/useMediaLibrary', () => ({
   useDeleteImageGeneration: () => ({ mutate: vi.fn() }),
 }));
 
+let voicesMock: { id: string; name: string; prompt: string }[];
+let projectPromptsMock: { id: string; name: string; prompt: string }[];
+
+vi.mock('@/hooks/useVoices', () => ({
+  useVoices: () => ({ data: voicesMock, isPending: false }),
+  useCreateVoice: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateVoice: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteVoice: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+}));
+
+vi.mock('@/hooks/useProjectPrompts', () => ({
+  useProjectPrompts: () => ({ data: projectPromptsMock, isPending: false }),
+  useCreateProjectPrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateProjectPrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteProjectPrompt: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+}));
+
 vi.mock('@/hooks/useGenerationStream', () => ({
   useGenerationStream: () => ({
     generation: undefined,
@@ -194,6 +211,8 @@ beforeEach(() => {
     signOut: vi.fn(async () => undefined),
   };
   elementsMock = [];
+  voicesMock = [];
+  projectPromptsMock = [];
   generationsMock = generationsResult([]);
   createGenerationMock = {
     mutateAsync: vi.fn(async () => generationFixture({ id: 'gen-new', status: 'pending' })),
@@ -364,6 +383,47 @@ describe('PromptComposer mentions', () => {
 
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(textarea).toHaveValue('Сцена @av');
+  });
+
+  /**
+   * The bug this pins: the popup used to concatenate elements, voices and project prompts
+   * and cut the result to its cap. Elements come first, so an account with a full library
+   * pushed every voice off the end — not missing, just never reachable, which reads exactly
+   * the same to whoever is typing.
+   */
+  it('still offers a voice when the element library alone would fill the popup', async () => {
+    const user = userEvent.setup();
+    const manyElements = Array.from({ length: 12 }, (_, index) => ({
+      ...AVA,
+      id: `el-${index}`,
+      name: `Герой ${index}`,
+      handle: `@Hero${index}`,
+    }));
+    voicesMock = [{ id: 'v1', name: 'Диктор Дона', prompt: 'женщина около 30, тёплый тембр' }];
+    projectPromptsMock = [{ id: 'p1', name: 'Бренд Dona', prompt: 'газировка в стекле' }];
+
+    renderWithProviders(<PromptHarness elements={manyElements} />);
+    await user.type(screen.getByRole('textbox', { name: 'Промпт' }), 'Сцена @');
+
+    const listbox = await screen.findByRole('listbox', { name: 'Упомянутые элементы' });
+    expect(within(listbox).getByText('Диктор Дона')).toBeInTheDocument();
+    expect(within(listbox).getByText('Бренд Dona')).toBeInTheDocument();
+  });
+
+  it('writes the voice description into the prompt, not its name', async () => {
+    const user = userEvent.setup();
+    voicesMock = [{ id: 'v1', name: 'Диктор', prompt: 'женщина около 30, тёплый тембр' }];
+
+    renderWithProviders(<PromptHarness elements={[]} />);
+    const textarea = screen.getByRole('textbox', { name: 'Промпт' });
+    await user.type(textarea, 'Сцена @Дикт');
+
+    const listbox = await screen.findByRole('listbox', { name: 'Упомянутые элементы' });
+    await user.click(within(listbox).getByText('Диктор'));
+
+    // The prefix is load-bearing: without a word about voice the server appends
+    // "no spoken narration" and contradicts the description.
+    expect(textarea).toHaveValue('Сцена Голос за кадром: женщина около 30, тёплый тембр ');
   });
 
   // Which category an element belongs to is the thing being chosen between, so the popup

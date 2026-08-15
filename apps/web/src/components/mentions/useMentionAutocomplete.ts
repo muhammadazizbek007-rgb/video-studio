@@ -31,6 +31,33 @@ export const MENTION_CATEGORY_ORDER: readonly VideoElementCategory[] = [
 type MentionField = HTMLTextAreaElement | HTMLInputElement;
 
 /**
+ * Fits three lists into one popup without letting the first one eat it.
+ *
+ * Concatenating and cutting to the cap is the obvious thing and it is wrong: elements come
+ * first, so an account with eight of them pushed every voice and every project prompt off
+ * the end. They were not missing — they were never reachable, which is indistinguishable
+ * from missing to whoever is typing.
+ *
+ * Places are dealt round-robin so each list that has a match is represented before any list
+ * takes a second, then the winners are put back in list order — the popup draws a heading
+ * wherever the group changes, and an interleaved list would be all headings.
+ */
+function shareTheCap(groups: readonly MentionSuggestion[][]): MentionSuggestion[] {
+  const pools = groups.map((group) => [...group]);
+  const picked: MentionSuggestion[] = [];
+
+  while (picked.length < MAX_SUGGESTIONS && pools.some((pool) => pool.length > 0)) {
+    for (const pool of pools) {
+      if (picked.length >= MAX_SUGGESTIONS) break;
+      const next = pool.shift();
+      if (next) picked.push(next);
+    }
+  }
+
+  return groups.flatMap((group) => group.filter((item) => picked.includes(item)));
+}
+
+/**
  * What `@` can offer: a saved element or a saved narrator.
  *
  * They resolve in opposite directions and that is the whole reason for the union. An element
@@ -112,19 +139,14 @@ export function useMentionAutocomplete<T extends MentionField>({
         if (usedA !== usedB) return usedB.localeCompare(usedA);
         return b.createdAt.localeCompare(a.createdAt);
       })
-      .slice(0, MAX_SUGGESTIONS)
       .map((element): MentionSuggestion => ({ kind: 'element', id: element.id, element }));
 
-    // Voices come last: elements are what a prompt is usually reaching for, and a narrator
-    // is chosen once per clip rather than mentioned repeatedly.
     const matchedVoices = voices
       .filter((voice) => needle === '' || voice.name.toLowerCase().includes(needle))
-      .slice(0, MAX_SUGGESTIONS)
       .map((voice): MentionSuggestion => ({ kind: 'voice', id: voice.id, voice }));
 
     const matchedProjects = projectPrompts
       .filter((entry) => needle === '' || entry.name.toLowerCase().includes(needle))
-      .slice(0, MAX_SUGGESTIONS)
       .map(
         (projectPrompt): MentionSuggestion => ({
           kind: 'project',
@@ -133,7 +155,7 @@ export function useMentionAutocomplete<T extends MentionField>({
         }),
       );
 
-    return [...matchedElements, ...matchedVoices, ...matchedProjects].slice(0, MAX_SUGGESTIONS);
+    return shareTheCap([matchedElements, matchedVoices, matchedProjects]);
   }, [elements, voices, projectPrompts, query]);
 
   const open = query !== null && suggestions.length > 0;
