@@ -273,7 +273,14 @@ describe('resolveMentions', () => {
       expect(result.assetImageUrls).toEqual([muhammad.imageUrl]);
     });
 
-    it('keeps its place under frame-wins, and the elements fill the rest', () => {
+    /**
+     * Veo answers a request carrying both an opening frame and asset references with
+     * "Image and reference images cannot be both set", and the clip fails outright. This
+     * used to assert that frame-wins kept the frame *and* the element photos, which is
+     * exactly the request Veo refuses — the storyboard sent it every time somebody attached
+     * an opening frame to a prompt that mentioned anybody.
+     */
+    it('keeps its place under frame-wins, and sends the elements as words', () => {
       const result = resolveMentions({
         prompt: '@Мухаммад пьёт чай',
         elements: [muhammad],
@@ -284,7 +291,33 @@ describe('resolveMentions', () => {
 
       expect(result.firstFrameImageUrl).toBe(frame);
       expect(result.firstFrameDropped).toBe(false);
-      expect(result.assetImageUrls).toEqual([muhammad.imageUrl]);
+      expect(result.assetImageUrls).toEqual([]);
+      // Not lost — carried as a name in the prompt instead of a photo in a slot.
+      expect(result.textRefs.map((ref) => ref.handle)).toEqual(['@Мухаммад']);
+      expect(result.promptForModel).toContain('Мухаммад');
+      expect(result.mode).toBe('image_to_video');
+    });
+
+    // The rule Veo enforces, stated once as a rule rather than case by case.
+    it('never sends an opening frame and asset references together', () => {
+      const combinations = [
+        { framePolicy: 'frame-wins' as const, prompt: '@Мухаммад и @Кафе' },
+        { framePolicy: 'elements-win' as const, prompt: '@Мухаммад и @Кафе' },
+        { framePolicy: 'frame-wins' as const, prompt: 'никого не упомянули' },
+        { framePolicy: 'elements-win' as const, prompt: 'никого не упомянули' },
+      ];
+
+      for (const { framePolicy, prompt } of combinations) {
+        const result = resolveMentions({
+          prompt,
+          elements: [muhammad, cafe],
+          model: MODEL,
+          firstFrameImageUrl: frame,
+          framePolicy,
+        });
+
+        expect(result.firstFrameImageUrl !== null && result.assetImageUrls.length > 0).toBe(false);
+      }
     });
 
     it('survives when nothing was mentioned', () => {

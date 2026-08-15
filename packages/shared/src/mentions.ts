@@ -260,18 +260,30 @@ export function resolveMentions(input: ResolveMentionsInput): ResolvedMentions {
     (a, b) => CATEGORY_PRIORITY[a.category] - CATEGORY_PRIORITY[b.category],
   );
 
-  const capacity = assetReferenceCapacity(input.model);
+  const modelCapacity = assetReferenceCapacity(input.model);
   const wantsSlot = prioritised.filter((element) => !isBlank(element.imageUrl));
 
-  // The uploaded frame and the asset references are separate Veo inputs, but a model that
-  // takes no reference images at all can still take an opening frame, so the frame is only
-  // ever dropped when there is actually a mentioned element ready to replace it.
+  /**
+   * Veo takes an opening frame or asset references, never both — it answers a request
+   * carrying the two with "Image and reference images cannot be both set" and the clip
+   * fails. So exactly one of them has to give way, and the policy says which.
+   *
+   * The frame gives way in the studio: someone who wrote `@Мухаммад` is asking for that
+   * face, and a hand-picked photo of him beats an unrelated opening still. In a storyboard
+   * it is the other way round — the opening frame is the previous shot's last frame, and
+   * dropping it breaks the cut on screen, which is the one thing a board exists to avoid.
+   */
   const frameLosesToElements =
     framePolicy === 'elements-win' &&
     uploadedFrame !== null &&
     wantsSlot.length > 0 &&
-    capacity > 0;
+    modelCapacity > 0;
+
   const firstFrameImageUrl = frameLosesToElements ? null : uploadedFrame;
+
+  // The other half of the same rule, and the half that was missing: keeping the frame has
+  // to take the slots away, or both inputs travel and Veo refuses the request outright.
+  const capacity = firstFrameImageUrl === null ? modelCapacity : 0;
 
   const assetRefs: ElementRef[] = [];
   const textRefs: ElementRef[] = [];
