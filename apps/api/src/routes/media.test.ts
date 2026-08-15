@@ -227,4 +227,52 @@ describe('media routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/media/uploads' });
     expect(response.statusCode).toBe(401);
   });
+
+  /**
+   * Every object this studio writes is filed under `<kind>/<userId>/…`, so the key names its
+   * owner. Without this check any account could name another's clip and walk away with a
+   * frame of it — the one way this route could leak somebody else's footage.
+   */
+  it('refuses to cut a frame from another account’s clip', async () => {
+    const owner = await signIn('frame-owner@example.com');
+    const stranger = await signIn('frame-stranger@example.com');
+    const form = multipart('clip.mp4', 'video/mp4', Buffer.from('not-really-a-video', 'utf8'));
+    const uploaded = parse<{ url: string }>(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/media/upload',
+          headers: { ...form.headers, cookie: owner.cookie },
+          payload: form.payload,
+        })
+      ).body,
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/media/last-frame',
+      headers: { cookie: stranger.cookie },
+      payload: { videoUrl: uploaded.url },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('refuses a url this studio never stored', async () => {
+    const { cookie } = await signIn('frame-foreign@example.com');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/media/last-frame',
+      headers: { cookie },
+      payload: { videoUrl: 'https://elsewhere.example/clip.mp4' },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a signed-out caller', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/media/uploads' });
+    expect(response.statusCode).toBe(401);
+  });
 });

@@ -422,6 +422,12 @@ export const api = {
       formData.append('file', file);
       return requestJson('/media/upload', uploadDtoSchema, { method: 'POST', formData });
     },
+    /** Cuts the closing frame of any clip this account owns and files it as an upload. */
+    saveLastFrame: (videoUrl: string) =>
+      requestJson('/media/last-frame', uploadDtoSchema, {
+        method: 'POST',
+        body: { videoUrl },
+      }),
     list: (params: { kind?: MediaKind; limit?: number } = {}) =>
       requestJson('/media/uploads', uploadListSchema, {
         query: { kind: params.kind, limit: params.limit },

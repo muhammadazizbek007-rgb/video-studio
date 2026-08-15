@@ -54,18 +54,31 @@ export interface ExtractedFrame {
   storagePath: string;
 }
 
-/**
- * Cuts the last frame out of a stored clip and keeps it beside the video.
- *
- * Works from a local path when the storage driver offers one, and falls back to writing the
- * bytes to a temporary file otherwise — ffmpeg reads files, not URLs.
- */
+/** Cuts the last frame out of a generated clip and keeps it beside the video. */
 export async function extractLastFrame(args: {
   videoUrl: string;
   userId: string;
   generationId: string;
 }): Promise<ExtractedFrame> {
-  const key = storageKeyFromUrl(args.videoUrl);
+  const data = await readLastFrameBytes(args.videoUrl);
+  const stored = await getStorage().save({
+    key: `generations/${args.userId}/${args.generationId}/last-frame.jpg`,
+    data,
+    contentType: 'image/jpeg',
+  });
+
+  return { url: stored.url, storagePath: stored.path };
+}
+
+/**
+ * The frame itself, as bytes, with no opinion about where it belongs.
+ *
+ * Split out because the same cut serves two homes: a generation keeps its frame beside the
+ * clip, and a video the account merely uploaded has no generation to keep it next to — that
+ * one becomes an upload like any other picture.
+ */
+export async function readLastFrameBytes(videoUrl: string): Promise<Buffer> {
+  const key = storageKeyFromUrl(videoUrl);
   if (!key) {
     throw new ApiError('invalid-argument', 'Only a clip stored by this studio has a last frame.');
   }
@@ -89,14 +102,7 @@ export async function extractLastFrame(args: {
     }
 
     await run(getEnv().ffmpegPath, FFMPEG_ARGS(input, output), { timeout: EXTRACT_TIMEOUT_MS });
-
-    const stored = await storage.save({
-      key: `generations/${args.userId}/${args.generationId}/last-frame.jpg`,
-      data: await readFile(output),
-      contentType: 'image/jpeg',
-    });
-
-    return { url: stored.url, storagePath: stored.path };
+    return await readFile(output);
   } finally {
     await rm(workspace, { recursive: true, force: true }).catch(() => undefined);
   }

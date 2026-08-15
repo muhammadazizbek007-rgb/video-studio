@@ -9,7 +9,9 @@ import { toUploadDto } from '../db/mappers.js';
 import { UploadModel } from '../db/models/upload.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
+import { readLastFrameBytes } from '../services/lastFrame.js';
 import { getStorage } from '../storage/index.js';
+import { storageKeyFromUrl } from '../storage/mediaUrl.js';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 /** Display only; a longer name is truncated rather than rejected. */
@@ -125,6 +127,57 @@ export const mediaRoutes: FastifyPluginAsyncZod = async (fastify) => {
     // record around them is additive.
     return toUploadDto(doc);
   });
+
+  /**
+   * Files the closing frame of any clip this account owns, generated or uploaded.
+   *
+   * A storyboard segment can hold a video that was simply uploaded, and those have no
+   * generation record to hang a cached frame on — which is the whole reason this exists
+   * beside the per-generation route rather than instead of it.
+   *
+   * Ownership is read off the storage key. Every object this studio writes is filed under
+   * `<kind>/<userId>/…`, so the second segment of the key is the owner, and without this
+   * check any account could name another's video and walk away with a frame of it.
+   */
+  fastify.post(
+    '/last-frame',
+    {
+      preHandler: fastify.authenticate,
+      schema: { body: z.object({ videoUrl: z.string().min(1) }) },
+    },
+    async (request) => {
+      const user = requireAuthUser(request);
+
+      const key = storageKeyFromUrl(request.body.videoUrl);
+      if (!key) {
+        throw new ApiError('invalid-argument', 'Only a clip stored by this studio has a frame.');
+      }
+      if (key.split('/')[1] !== user.id) {
+        throw new ApiError('permission-denied', 'This clip belongs to another account.');
+      }
+
+      const data = await readLastFrameBytes(request.body.videoUrl);
+
+      const stored = await getStorage().save({
+        key: `uploads/${user.id}/${randomUUID()}.jpg`,
+        data,
+        contentType: 'image/jpeg',
+      });
+
+      const doc = await UploadModel.create({
+        userId: objectId(user.id),
+        url: stored.url,
+        storagePath: stored.path,
+        kind: 'image',
+        contentType: 'image/jpeg',
+        bytes: stored.bytes,
+        filename: 'last-frame.jpg',
+        saved: false,
+      });
+
+      return toUploadDto(doc);
+    },
+  );
 
   fastify.patch(
     '/uploads/:id',

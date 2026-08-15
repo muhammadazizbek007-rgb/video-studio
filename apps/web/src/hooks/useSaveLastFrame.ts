@@ -13,6 +13,13 @@ import { qk } from '@/lib/queryKeys';
  * keeps it; this asks for the record, takes the bytes it points at and files a copy.
  */
 
+export interface SaveLastFrameSource {
+  /** Always present: the clip on screen, whatever produced it. */
+  videoUrl: string;
+  /** Present only for a clip this studio generated. */
+  generationId?: string | undefined;
+}
+
 /** Named so a folder of them is readable a week later, rather than eight `last-frame.jpg`. */
 function fileNameFor(prompt: string, generationId: string): string {
   const words = prompt
@@ -29,17 +36,24 @@ export function useSaveLastFrame() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (generationId: string) => {
-      // Asking the endpoint rather than reading the cache: an older clip may never have had
-      // its frame cut, and this is the call that cuts it.
-      const generation = await api.generations.lastFrame(generationId);
-      const url = generation.resultLastFrameUrl;
-      if (!url) {
-        throw new Error('no-frame');
+    mutationFn: async (source: SaveLastFrameSource) => {
+      // A segment can hold a video that was simply uploaded, with no generation behind it.
+      // Those have no cached frame to copy, so the server cuts one from the clip itself.
+      if (!source.generationId) {
+        return await api.media.saveLastFrame(source.videoUrl);
       }
 
+      // Asking the endpoint rather than reading the cache: an older clip may never have had
+      // its frame cut, and this is the call that cuts it.
+      const generation = await api.generations.lastFrame(source.generationId);
+      const url = generation.resultLastFrameUrl;
+
+      // A generation whose frame could not be cut still has its clip, so fall through to
+      // cutting from the video rather than telling the user it cannot be done.
+      if (!url) return await api.media.saveLastFrame(source.videoUrl);
+
       const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok) throw new Error('unreadable-frame');
+      if (!response.ok) return await api.media.saveLastFrame(source.videoUrl);
 
       const blob = await response.blob();
       const file = new File([blob], fileNameFor(generation.prompt, generation.id), {

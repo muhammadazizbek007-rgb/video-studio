@@ -441,19 +441,23 @@ export function CinemaStudioPage() {
   /**
    * Files the closing frame of the segment on screen as an ordinary upload.
    *
-   * A segment with no generation behind it — an imported clip — has no frame of ours to
-   * take, so the button says so rather than failing silently on a click that looked fine.
+   * Works on any clip in the slot, generated here or uploaded: an uploaded one has no
+   * cached frame, so the server cuts one from the video itself. Only a slot with no clip
+   * at all has nothing to take.
    */
   async function saveSegmentLastFrame(segment: string) {
-    const generationId = segmentGenerationIds[segment];
-    if (!generationId) {
+    const videoUrl = segmentVideos[segment];
+    if (!videoUrl) {
       setNotice(t('cinema.saveLastFrameUnavailable'));
       return;
     }
 
     setNotice('');
     try {
-      await saveLastFrame.mutateAsync(generationId);
+      await saveLastFrame.mutateAsync({
+        videoUrl,
+        generationId: segmentGenerationIds[segment],
+      });
       setNotice(t('cinema.saveLastFrameDone'));
     } catch {
       setNotice(t('cinema.saveLastFrameFailed'));
