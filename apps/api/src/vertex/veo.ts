@@ -41,6 +41,8 @@ export interface VeoStartInput {
   lastFrameImageUrl?: string;
   /** Fixes the model's dice so the same request returns the same clip. */
   seed?: number;
+  /** A saved narrator's description, folded into the prompt. */
+  voicePrompt?: string;
 }
 
 export interface VeoExtendInput {
@@ -291,6 +293,7 @@ async function buildInstance(
       cameraMotion: input.cameraMotion,
       hasReferenceImage: Boolean(firstFrameUrl),
       supportsAudio: spec.supportsAudio,
+      voicePrompt: input.voicePrompt,
     }),
   };
 

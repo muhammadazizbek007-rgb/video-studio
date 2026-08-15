@@ -29,6 +29,7 @@ import { StatusPill } from '@/components/video/StatusPill';
 import { VideoPlayer } from '@/components/video/VideoPlayer';
 import type { VideoTool } from '@/components/video/VideoToolsMenu';
 import { VideoToolsMenu } from '@/components/video/VideoToolsMenu';
+import { VoicePicker } from '@/components/video/VoicePicker';
 import { useElements } from '@/hooks/useElements';
 import { useGenerationStream } from '@/hooks/useGenerationStream';
 import {
@@ -69,6 +70,7 @@ export function StudioPage() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendError, setExtendError] = useState('');
+  const [voiceId, setVoiceId] = useState<string | null>(null);
 
   const { data: elements } = useElements();
   const resultsHeadingId = useId();
@@ -155,6 +157,9 @@ export function StudioPage() {
       cameraMotion,
       firstFrameImageUrl: model.supportsImageToVideo && firstFrameUrl ? firstFrameUrl : undefined,
       lastFrameImageUrl: model.supportsLastFrame && lastFrameUrl ? lastFrameUrl : undefined,
+      // A narrator on a silent model is a promise the model cannot keep, so it is dropped
+      // rather than sent and quietly ignored.
+      voiceId: model.supportsAudio && voiceId ? voiceId : undefined,
     };
 
     try {
@@ -255,6 +260,13 @@ export function StudioPage() {
               references.assetImageUrls.length + (references.firstFrameImageUrl ? 1 : 0)
             }
             disabled={busy}
+          />
+
+          <VoicePicker
+            value={voiceId}
+            onChange={setVoiceId}
+            disabled={busy}
+            supported={model.supportsAudio}
           />
 
           <ReferenceUploader

@@ -20,6 +20,7 @@ import { toElementDto } from '../db/mappers.js';
 import { ElementModel } from '../db/models/element.js';
 import { type GenerationDoc, GenerationModel } from '../db/models/generation.js';
 import { StoryboardModel } from '../db/models/storyboard.js';
+import { VoiceModel } from '../db/models/voice.js';
 import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
@@ -60,6 +61,21 @@ function toObjectId(value: string, what: string): Types.ObjectId {
 /** Nobody curates hundreds of elements, and a mention can only match one that was read. */
 const ELEMENT_LOOKUP_LIMIT = 500;
 
+/**
+ * The narrator's description, or nothing.
+ *
+ * A voice deleted between choosing it and generating is not an error worth failing a clip
+ * over — the shot still stands, it just loses its narrator. Silence beats a red card here.
+ */
+async function loadVoicePrompt(userId: string, voiceId?: string): Promise<string | undefined> {
+  if (!voiceId || !Types.ObjectId.isValid(voiceId)) return undefined;
+  const doc = await VoiceModel.findOne({
+    _id: new Types.ObjectId(voiceId),
+    userId: toObjectId(userId, 'Account'),
+  }).exec();
+  return doc?.prompt;
+}
+
 async function loadElements(userId: string): Promise<ElementDto[]> {
   const docs = await ElementModel.find({ userId: toObjectId(userId, 'Account') })
     .limit(ELEMENT_LOOKUP_LIMIT)
@@ -81,6 +97,10 @@ export async function createGeneration(
   options: CreateGenerationOptions = {},
 ): Promise<GenerationDocument> {
   const spec = resolveModel(input.modelId);
+
+  // Resolved here rather than trusted from the caller: a client could otherwise attach any
+  // account's narrator by guessing an id, and the description is what reaches the model.
+  const voicePrompt = await loadVoicePrompt(user.id, input.voiceId);
 
   let aspectRatio: VideoAspectRatio;
   try {
@@ -159,6 +179,7 @@ export async function createGeneration(
           assetReferenceUrls: resolved.assetImageUrls,
           lastFrameImageUrl: input.lastFrameImageUrl,
           seed: input.seed,
+          voicePrompt,
         }),
     });
 

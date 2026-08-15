@@ -183,6 +183,43 @@ describe('buildVeoPrompt', () => {
     expect(result).toContain(DEFAULT_AUDIO_LINE);
   });
 
+  it('names the narrator when a saved voice is attached', () => {
+    const built = buildVeoPrompt({
+      prompt: 'девушка держит бутылку',
+      supportsAudio: true,
+      voicePrompt: 'женщина около 30, тёплый низкий тембр, говорит по-узбекски',
+    });
+
+    expect(built).toContain('Narrated by: женщина около 30, тёплый низкий тембр');
+  });
+
+  // The default audio line ends with "no spoken narration". Appending both would ask the
+  // model to describe a speaker and stay silent in the same breath, and a prompt that
+  // contradicts itself gets whichever half the model prefers.
+  it('drops the silence instruction when a voice is asked for', () => {
+    const built = buildVeoPrompt({
+      prompt: 'девушка держит бутылку',
+      supportsAudio: true,
+      voicePrompt: 'мужчина, спокойный баритон',
+    });
+
+    expect(built).not.toContain(DEFAULT_AUDIO_LINE);
+    expect(built).not.toContain('no spoken narration');
+  });
+
+  it('leaves a silent model silent, voice or not', () => {
+    const built = buildVeoPrompt({ prompt: 'кот', voicePrompt: 'мужчина, баритон' });
+
+    expect(built).not.toContain('Narrated by');
+  });
+
+  it('ignores a blank voice rather than announcing an empty narrator', () => {
+    const built = buildVeoPrompt({ prompt: 'кот', supportsAudio: true, voicePrompt: '   ' });
+
+    expect(built).not.toContain('Narrated by');
+    expect(built).toContain(DEFAULT_AUDIO_LINE);
+  });
+
   it('never produces leading separators for an empty prompt', () => {
     expect(buildVeoPrompt({ prompt: '' })).toBe('');
     expect(

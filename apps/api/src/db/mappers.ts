@@ -7,6 +7,7 @@ import type {
   StoryboardSegmentDto,
   UploadDto,
   UserDto,
+  VoiceDto,
 } from '@video-studio/shared';
 import type { ElementDoc } from './models/element.js';
 import type { GenerationDoc } from './models/generation.js';
@@ -14,6 +15,7 @@ import type { ImageGenerationDoc } from './models/imageGeneration.js';
 import type { StoryboardDoc } from './models/storyboard.js';
 import type { UploadDoc } from './models/upload.js';
 import type { UserDoc } from './models/user.js';
+import type { VoiceDoc } from './models/voice.js';
 
 function iso(value: Date | undefined): string {
   return (value ?? new Date(0)).toISOString();
@@ -76,6 +78,7 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   assignOptional(dto, 'errorMessage', doc.errorMessage);
   assignOptional(dto, 'lastFrameImageUrl', doc.lastFrameImageUrl);
   assignOptional(dto, 'seed', doc.seed);
+  assignOptional(dto, 'voiceId', doc.voiceId?.toString());
   return dto;
 }
 
@@ -161,6 +164,17 @@ export function toStoryboardDto(
   assignOptional(dto, 'exportUrl', doc.exportUrl);
   assignOptional(dto, 'exportError', doc.exportError);
   return dto;
+}
+
+export function toVoiceDto(doc: VoiceDoc): VoiceDto {
+  return {
+    id: doc._id.toString(),
+    userId: doc.userId.toString(),
+    name: doc.name,
+    prompt: doc.prompt,
+    createdAt: iso(doc.createdAt),
+    updatedAt: iso(doc.updatedAt),
+  };
 }
 
 export function toElementDto(doc: ElementDoc): ElementDto {

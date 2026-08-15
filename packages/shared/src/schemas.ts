@@ -65,6 +65,8 @@ export const generationDtoSchema = z.object({
   lastFrameImageUrl: z.string().optional(),
   /** The dice roll this clip came from; re-using it reproduces the clip. */
   seed: z.number().int().optional(),
+  /** The saved voice this clip was narrated with, when one was chosen. */
+  voiceId: z.string().optional(),
   elements: z.array(elementRefSchema),
   referenceCount: z.number().int().min(0),
   createdAt: z.iso.datetime(),
@@ -102,8 +104,42 @@ export const createGenerationSchema = z.object({
    * without it every re-run is a fresh roll and the thing you liked is gone.
    */
   seed: z.number().int().min(0).max(4_294_967_295).optional(),
+  /** A saved voice to narrate this clip. The server appends its description to the prompt. */
+  voiceId: z.string().min(1).optional(),
 });
 export type CreateGenerationInput = z.infer<typeof createGenerationSchema>;
+
+/**
+ * A saved narrator.
+ *
+ * Veo invents a new speaker for every clip, and the API has no voice parameter to stop it —
+ * the only lever is the prompt. So a voice here is a description the account writes once
+ * ("woman, about 30, warm low register, unhurried, speaks Uzbek") and attaches to any
+ * generation, so every clip in a campaign asks for the same person. It steers rather than
+ * guarantees: the same description gets a similar voice, not a byte-identical one.
+ */
+export const voiceDtoSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  name: z.string().min(1),
+  /** The sentence appended to the prompt. Age, timbre, pace, language — whatever pins it. */
+  prompt: z.string().min(1),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type VoiceDto = z.infer<typeof voiceDtoSchema>;
+
+export const createVoiceSchema = z.object({
+  name: z.string().min(1).max(80),
+  prompt: z.string().min(1).max(2000),
+});
+export type CreateVoiceInput = z.infer<typeof createVoiceSchema>;
+
+export const updateVoiceSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  prompt: z.string().min(1).max(2000).optional(),
+});
+export type UpdateVoiceInput = z.infer<typeof updateVoiceSchema>;
 
 export const updateGenerationSchema = z.object({
   saved: z.boolean().optional(),

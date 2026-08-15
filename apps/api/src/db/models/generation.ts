@@ -41,6 +41,8 @@ export interface GenerationDoc {
   lastFrameImageUrl?: string;
   /** The dice roll handed to Veo; kept so the clip can be reproduced exactly. */
   seed?: number;
+  /** The saved narrator this clip asked for, kept as a record of what was requested. */
+  voiceId?: Types.ObjectId;
   elements: ElementRef[];
   referenceCount: number;
   vertexOperationName?: string;
@@ -99,6 +101,7 @@ const generationSchema = new Schema<GenerationDoc>(
     referenceImageUrls: { type: [String], required: true, default: [] },
     lastFrameImageUrl: { type: String },
     seed: { type: Number },
+    voiceId: { type: Schema.Types.ObjectId, ref: 'Voice' },
     elements: { type: [elementRefSubSchema], required: true, default: [] },
     referenceCount: { type: Number, required: true, default: 0 },
     vertexOperationName: { type: String },

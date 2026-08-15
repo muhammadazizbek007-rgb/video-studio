@@ -44,6 +44,7 @@ export type {
   CreateGenerationInput,
   CreateImageGenerationInput,
   CreateStoryboardInput,
+  CreateVoiceInput,
   ElementDto,
   ElementRef,
   EnrichPromptInput,
@@ -66,8 +67,10 @@ export type {
   UpdateStoryboardInput,
   UpdateStoryboardSegmentInput,
   UpdateUploadInput,
+  UpdateVoiceInput,
   UploadDto,
   UserDto,
+  VoiceDto,
 } from './schemas.js';
 export {
   apiErrorSchema,
@@ -76,6 +79,7 @@ export {
   createGenerationSchema,
   createImageGenerationSchema,
   createStoryboardSchema,
+  createVoiceSchema,
   elementDtoSchema,
   elementRefSchema,
   enrichPromptSchema,
@@ -100,6 +104,7 @@ export {
   updateStoryboardSchema,
   updateStoryboardSegmentSchema,
   updateUploadSchema,
+  updateVoiceSchema,
   uploadDtoSchema,
   userDtoSchema,
   videoAspectRatioSchema,
@@ -108,6 +113,7 @@ export {
   videoGenerationModeSchema,
   videoGenerationStatusSchema,
   videoStylePresetSchema,
+  voiceDtoSchema,
 } from './schemas.js';
 export type {
   CameraMotion,

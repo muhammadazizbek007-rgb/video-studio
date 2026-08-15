@@ -5,6 +5,7 @@ import { McpConnector } from '@/components/settings/McpConnector';
 import { Badge, Button, Card, Select, Skeleton, ThemeToggle } from '@/components/ui';
 import { useTheme } from '@/components/ui/useTheme';
 import { ElementLibrary } from '@/components/video/ElementLibrary';
+import { VoiceManager } from '@/components/voices/VoiceManager';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { api } from '@/lib/api';
@@ -61,6 +62,8 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">{t('settings.title')}</h1>
+
+      <VoiceManager />
 
       <Card className="flex flex-wrap items-center gap-4 p-4">
         {user?.picture ? (

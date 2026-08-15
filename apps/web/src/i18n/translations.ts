@@ -138,6 +138,29 @@ const ru = {
   'mode.short.image_to_video': 'Изображение',
   'mode.short.reference_to_video': 'Референсы',
 
+  'voices.title': 'Голоса',
+  'voices.subtitle':
+    'Veo придумывает нового диктора для каждого ролика. Опишите голос один раз — и выбирайте его при генерации, чтобы во всех роликах говорил один человек.',
+  'voices.add': 'Добавить голос',
+  'voices.empty': 'Пока ни одного голоса. Добавьте первый — он появится в выборе при генерации.',
+  'voices.newTitle': 'Новый голос',
+  'voices.editTitle': 'Изменить голос',
+  'voices.formHint':
+    'Название нужно только вам — по нему вы будете узнавать голос в списке. Описание уходит в модель.',
+  'voices.name': 'Название',
+  'voices.namePlaceholder': 'Например: Диктор Дона',
+  'voices.prompt': 'Описание голоса',
+  'voices.promptPlaceholder':
+    'Женщина около 30 лет, тёплый низкий тембр, говорит спокойно и неторопливо, по-узбекски, лёгкая улыбка в голосе',
+  'voices.promptHint':
+    'Чем конкретнее описание, тем ближе голоса от ролика к ролику. Указывайте пол, возраст, тембр, темп речи и язык.',
+  'voices.bothRequired': 'Заполните название и описание',
+  'voices.saveFailed': 'Не удалось сохранить голос',
+  'voices.pickerLabel': 'Голос',
+  'voices.none': 'Без озвучки',
+  'voices.emptyHint': 'Голоса добавляются в Настройках',
+  'voices.modelHasNoAudio': 'Выбранная модель не выдаёт звук',
+
   'tools.title': 'Инструменты',
   'tools.extend': 'Продолжить ролик',
   'tools.extendHint':
@@ -560,6 +583,30 @@ const uz: Dictionary = {
   'mode.short.image_to_video': 'Rasm',
   'mode.short.reference_to_video': 'Namunalar',
 
+  'voices.title': 'Ovozlar',
+  'voices.subtitle':
+    'Veo har bir rolik uchun yangi diktor o‘ylab topadi. Ovozni bir marta ta’riflang va generatsiyada tanlang — shunda hamma rolikda bitta odam gapiradi.',
+  'voices.add': 'Ovoz qo‘shish',
+  'voices.empty':
+    'Hozircha ovozlar yo‘q. Birinchisini qo‘shing — u generatsiyadagi ro‘yxatda paydo bo‘ladi.',
+  'voices.newTitle': 'Yangi ovoz',
+  'voices.editTitle': 'Ovozni o‘zgartirish',
+  'voices.formHint':
+    'Nom faqat sizga kerak — ro‘yxatdan shu bo‘yicha tanaysiz. Ta’rif esa modelga ketadi.',
+  'voices.name': 'Nomi',
+  'voices.namePlaceholder': 'Masalan: Dona diktori',
+  'voices.prompt': 'Ovoz ta’rifi',
+  'voices.promptPlaceholder':
+    '30 yoshlardagi ayol, iliq past tembr, xotirjam va shoshmasdan gapiradi, o‘zbekcha',
+  'voices.promptHint':
+    'Ta’rif qanchalik aniq bo‘lsa, ovoz roliklar orasida shunchalik yaqin chiqadi. Jinsi, yoshi, tembri, nutq sur’ati va tilini yozing.',
+  'voices.bothRequired': 'Nom va ta’rifni to‘ldiring',
+  'voices.saveFailed': 'Ovozni saqlab bo‘lmadi',
+  'voices.pickerLabel': 'Ovoz',
+  'voices.none': 'Ovozsiz',
+  'voices.emptyHint': 'Ovozlar Sozlamalarda qo‘shiladi',
+  'voices.modelHasNoAudio': 'Tanlangan model ovoz chiqarmaydi',
+
   'tools.title': 'Asboblar',
   'tools.extend': 'Rolikni davom ettirish',
   'tools.extendHint': 'Oxirgi soniyadan davomini olish — 8 soniyadan uzun roliklar shunday chiqadi',
@@ -977,6 +1024,29 @@ const en: Dictionary = {
   'mode.short.text_to_video': 'Text',
   'mode.short.image_to_video': 'Image',
   'mode.short.reference_to_video': 'References',
+
+  'voices.title': 'Voices',
+  'voices.subtitle':
+    'Veo casts a new narrator for every clip. Describe a voice once and pick it when generating, so the same person speaks across the whole campaign.',
+  'voices.add': 'Add a voice',
+  'voices.empty': 'No voices yet. Add one and it appears in the picker when you generate.',
+  'voices.newTitle': 'New voice',
+  'voices.editTitle': 'Edit voice',
+  'voices.formHint':
+    'The name is only for you — it is how you recognise the voice in the list. The description is what reaches the model.',
+  'voices.name': 'Name',
+  'voices.namePlaceholder': 'For example: Dona narrator',
+  'voices.prompt': 'Voice description',
+  'voices.promptPlaceholder':
+    'Woman around 30, warm low register, speaks calmly and unhurried, in Uzbek, a slight smile in the voice',
+  'voices.promptHint':
+    'The more specific the description, the closer the voice stays from clip to clip. Give gender, age, timbre, pace and language.',
+  'voices.bothRequired': 'Fill in both the name and the description',
+  'voices.saveFailed': 'Could not save the voice',
+  'voices.pickerLabel': 'Voice',
+  'voices.none': 'No narration',
+  'voices.emptyHint': 'Voices are added in Settings',
+  'voices.modelHasNoAudio': 'The selected model produces no audio',
 
   'tools.title': 'Tools',
   'tools.extend': 'Continue the clip',

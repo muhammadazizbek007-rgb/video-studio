@@ -155,6 +155,13 @@ export interface PromptInput {
   hasReferenceImage?: boolean;
   /** Whether the selected model produces an audio track */
   supportsAudio?: boolean;
+  /**
+   * A saved narrator's description, when the caller chose one.
+   *
+   * Veo has no voice parameter, so this is the whole mechanism: the same words describing
+   * the same person, asked for again on the next clip.
+   */
+  voicePrompt?: string;
 }
 
 function describeCameraMotion(cameraMotion: string | undefined): string | null {
@@ -195,7 +202,13 @@ export function buildVeoPrompt(input: PromptInput): string {
   const camera = describeCameraMotion(input.cameraMotion);
   if (camera) tail.push(camera);
 
-  if (input.supportsAudio && !AUDIO_KEYWORDS.test(scene)) {
+  const voice = input.voicePrompt?.trim();
+  if (input.supportsAudio && voice) {
+    // The default audio line is skipped on purpose. It ends with "no spoken narration",
+    // which would tell the model to stay silent in the same breath as describing who is
+    // speaking — and a prompt that contradicts itself gets whichever half the model likes.
+    tail.push(`Narrated by: ${voice}`);
+  } else if (input.supportsAudio && !AUDIO_KEYWORDS.test(scene)) {
     tail.push(DEFAULT_AUDIO_PROMPT);
   }
 

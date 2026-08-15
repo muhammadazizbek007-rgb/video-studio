@@ -4,6 +4,7 @@ import {
   type CreateGenerationInput,
   type CreateImageGenerationInput,
   type CreateStoryboardInput,
+  type CreateVoiceInput,
   type EnrichPromptInput,
   type ExtendGenerationInput,
   elementDtoSchema,
@@ -22,10 +23,12 @@ import {
   type UpdateStoryboardInput,
   type UpdateStoryboardSegmentInput,
   type UpdateUploadInput,
+  type UpdateVoiceInput,
   uploadDtoSchema,
   userDtoSchema,
   videoAspectRatioSchema,
   videoDurationSchema,
+  voiceDtoSchema,
 } from '@video-studio/shared';
 import { z } from 'zod';
 
@@ -96,6 +99,8 @@ const imageGenerationListSchema = z.object({
 const uploadListSchema = z.object({
   items: z.array(uploadDtoSchema),
 });
+
+const voiceListSchema = z.object({ items: z.array(voiceDtoSchema) });
 
 const enrichResponseSchema = z.object({
   enrichedPrompt: z.string(),
@@ -243,6 +248,16 @@ export const api = {
         body: email ? { email } : {},
         refreshOn401: false,
       }),
+  },
+  voices: {
+    list: () => requestJson('/voices', voiceListSchema),
+    create: (input: CreateVoiceInput) =>
+      requestJson('/voices', voiceDtoSchema, { method: 'POST', body: input }),
+    update: (id: string, input: UpdateVoiceInput) =>
+      requestJson(`/voices/${id}`, voiceDtoSchema, { method: 'PATCH', body: input }),
+    remove: async (id: string): Promise<void> => {
+      await send(`/voices/${id}`, { method: 'DELETE' });
+    },
   },
   models: {
     list: () => requestJson('/models', modelsResponseSchema),
