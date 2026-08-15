@@ -127,6 +127,46 @@ describe('CinemaPlayer', () => {
     expect(screen.getByRole('slider')).toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('saves the closing frame of whichever segment is on screen', async () => {
+    const user = userEvent.setup();
+    const onSaveLastFrame = vi.fn();
+
+    renderUi(
+      <CinemaPlayer
+        completedSegs={['1', '2']}
+        segmentVideos={{ '1': 'a.mp4', '2': 'b.mp4' }}
+        segmentDurations={{ '1': 8, '2': 8 }}
+        onDurationMeasured={noop}
+        onExport={noop}
+        isSaving={false}
+        saveProgress={0}
+        onSaveLastFrame={onSaveLastFrame}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Save the last frame/i }));
+
+    // The one on screen, not the first on the board — the playhead starts on segment 1.
+    expect(onSaveLastFrame).toHaveBeenCalledWith('1');
+  });
+
+  it('offers nothing to save while the board is empty', () => {
+    renderUi(
+      <CinemaPlayer
+        completedSegs={[]}
+        segmentVideos={{}}
+        segmentDurations={{}}
+        onDurationMeasured={noop}
+        onExport={noop}
+        isSaving={false}
+        saveProgress={0}
+        onSaveLastFrame={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Save the last frame/i })).toBeDisabled();
+  });
+
   it('sizes each pill from its measured duration', () => {
     const { container } = renderUi(
       <CinemaPlayer

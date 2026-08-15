@@ -24,6 +24,7 @@ import {
   useDeleteImageGeneration,
   useImageGenerations,
 } from '@/hooks/useMediaLibrary';
+import { useSaveLastFrame } from '@/hooks/useSaveLastFrame';
 import { useStoryboard, useStoryboardCapabilities } from '@/hooks/useStoryboard';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { ApiClientError } from '@/lib/api';
@@ -94,6 +95,7 @@ export function CinemaStudioPage() {
   const { storyboard, isLoading, isError, isGenerating, actions, reload } = useStoryboard();
   const { serverStitching } = useStoryboardCapabilities();
   const extendGeneration = useExtendGeneration();
+  const saveLastFrame = useSaveLastFrame();
 
   // The same query the media picker reads, so a still generated here is on its Images tab
   // immediately instead of after a reload.
@@ -436,6 +438,28 @@ export function CinemaStudioPage() {
     }
   }
 
+  /**
+   * Files the closing frame of the segment on screen as an ordinary upload.
+   *
+   * A segment with no generation behind it — an imported clip — has no frame of ours to
+   * take, so the button says so rather than failing silently on a click that looked fine.
+   */
+  async function saveSegmentLastFrame(segment: string) {
+    const generationId = segmentGenerationIds[segment];
+    if (!generationId) {
+      setNotice(t('cinema.saveLastFrameUnavailable'));
+      return;
+    }
+
+    setNotice('');
+    try {
+      await saveLastFrame.mutateAsync(generationId);
+      setNotice(t('cinema.saveLastFrameDone'));
+    } catch {
+      setNotice(t('cinema.saveLastFrameFailed'));
+    }
+  }
+
   return (
     <section className="relative min-h-[620px] overflow-hidden rounded-lg bg-surface shadow-neu-raised lg:min-h-[720px]">
       <ExtendClipDialog
@@ -458,6 +482,8 @@ export function CinemaStudioPage() {
             data-testid="cinema-player"
           >
             <CinemaPlayer
+              onSaveLastFrame={(segment) => void saveSegmentLastFrame(segment)}
+              isSavingLastFrame={saveLastFrame.isPending}
               renderTools={(segment) => (
                 <VideoToolsMenu
                   open={toolsOpen}

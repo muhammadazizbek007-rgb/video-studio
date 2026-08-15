@@ -245,6 +245,10 @@ const ru = {
   'media.tabVideos': 'Видеопоколения',
   'media.tabLastFrames': 'Последние кадры',
   'media.lastFramePrevious': 'Конец предыдущего кадра',
+  'cinema.saveLastFrame': 'Сохранить последний кадр',
+  'cinema.saveLastFrameDone': 'Последний кадр сохранён в Загрузки',
+  'cinema.saveLastFrameFailed': 'Не удалось сохранить последний кадр',
+  'cinema.saveLastFrameUnavailable': 'У этого сегмента нет сгенерированного ролика',
   'media.lastFrameNoPrevious': 'Предыдущий ролик ещё не снят',
   'media.lastFrameNoPreviousBody':
     'Сюда попадает только последний кадр ролика, который идёт перед этим. Снимите предыдущий сегмент — и его финальный кадр появится здесь',
@@ -720,6 +724,10 @@ const uz: Dictionary = {
   'media.tabVideos': 'Video generatsiyalar',
   'media.tabLastFrames': 'Oxirgi kadrlar',
   'media.lastFramePrevious': 'Oldingi kadrning oxiri',
+  'cinema.saveLastFrame': 'Oxirgi kadrni saqlash',
+  'cinema.saveLastFrameDone': 'Oxirgi kadr Yuklamalarga saqlandi',
+  'cinema.saveLastFrameFailed': 'Oxirgi kadrni saqlab bo‘lmadi',
+  'cinema.saveLastFrameUnavailable': 'Bu segmentda yaratilgan rolik yo‘q',
   'media.lastFrameNoPrevious': 'Oldingi rolik hali olinmagan',
   'media.lastFrameNoPreviousBody':
     'Bu yerga faqat shu kadrdan oldingi rolikning oxirgi kadri tushadi. Oldingi segmentni oling — yakuniy kadri shu yerda paydo bo‘ladi',
@@ -1192,6 +1200,10 @@ const en: Dictionary = {
   'media.tabVideos': 'Video generations',
   'media.tabLastFrames': 'Last frames',
   'media.lastFramePrevious': 'End of the previous shot',
+  'cinema.saveLastFrame': 'Save the last frame',
+  'cinema.saveLastFrameDone': 'The last frame was saved to Uploads',
+  'cinema.saveLastFrameFailed': 'Could not save the last frame',
+  'cinema.saveLastFrameUnavailable': 'This segment has no generated clip',
   'media.lastFrameNoPrevious': 'The previous shot has not been filmed yet',
   'media.lastFrameNoPreviousBody':
     'Only the closing frame of the shot before this one lands here. Generate the previous segment and its final frame appears',

@@ -1,4 +1,5 @@
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -50,6 +51,11 @@ export interface CinemaPlayerProps {
   isSaving: boolean;
   saveProgress: number;
   /**
+   * Saves the closing frame of whichever segment is on screen. Absent means no button.
+   */
+  onSaveLastFrame?: (segment: string) => void;
+  isSavingLastFrame?: boolean;
+  /**
    * The tools entry for whichever segment is on screen.
    *
    * A render prop rather than a node: only the player knows which segment is playing, and
@@ -67,6 +73,8 @@ export function CinemaPlayer({
   onExport,
   isSaving,
   saveProgress,
+  onSaveLastFrame,
+  isSavingLastFrame = false,
   renderTools,
 }: CinemaPlayerProps) {
   const { t } = useLanguage();
@@ -416,6 +424,17 @@ export function CinemaPlayer({
               disabled={!hasVideo}
               onClick={toggleFullscreen}
             />
+            {onSaveLastFrame ? (
+              <IconButton
+                size="sm"
+                label={t('cinema.saveLastFrame')}
+                icon={isSavingLastFrame ? <Spinner size="sm" /> : <Camera />}
+                disabled={!hasVideo || isSavingLastFrame}
+                onClick={() => {
+                  if (curSeg) onSaveLastFrame(curSeg);
+                }}
+              />
+            ) : null}
             {renderTools?.(hasVideo ? curSeg : undefined)}
             <Button
               size="sm"
