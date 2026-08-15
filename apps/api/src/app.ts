@@ -24,6 +24,7 @@ import { imageRoutes } from './routes/images.js';
 import { mcpKeyRoutes } from './routes/mcpKeys.js';
 import { mediaRoutes } from './routes/media.js';
 import { modelsRoutes } from './routes/models.js';
+import { projectPromptRoutes } from './routes/projectPrompts.js';
 import { promptRoutes } from './routes/prompt.js';
 import { storyboardRoutes } from './routes/storyboards.js';
 import { voiceRoutes } from './routes/voices.js';
@@ -228,6 +229,7 @@ export async function buildApp(): Promise<AppInstance> {
   await app.register(storyboardRoutes, { prefix: '/api/storyboards' });
   await app.register(elementRoutes, { prefix: '/api/elements' });
   await app.register(voiceRoutes, { prefix: '/api/voices' });
+  await app.register(projectPromptRoutes, { prefix: '/api/project-prompts' });
   await app.register(mediaRoutes, { prefix: '/api/media' });
   await app.register(promptRoutes, { prefix: '/api/prompt' });
   // Registered even when MCP is switched off, so the settings page can say so rather than

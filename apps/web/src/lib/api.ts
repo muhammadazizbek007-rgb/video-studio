@@ -3,6 +3,7 @@ import {
   type CreateElementInput,
   type CreateGenerationInput,
   type CreateImageGenerationInput,
+  type CreateProjectPromptInput,
   type CreateStoryboardInput,
   type CreateVoiceInput,
   type EnrichPromptInput,
@@ -15,11 +16,13 @@ import {
   type MediaKind,
   mcpKeyIssuedDtoSchema,
   mcpKeyStatusDtoSchema,
+  projectPromptDtoSchema,
   type StoryboardDto,
   storyboardDtoSchema,
   type UpdateElementInput,
   type UpdateGenerationInput,
   type UpdateImageGenerationInput,
+  type UpdateProjectPromptInput,
   type UpdateStoryboardInput,
   type UpdateStoryboardSegmentInput,
   type UpdateUploadInput,
@@ -101,6 +104,8 @@ const uploadListSchema = z.object({
 });
 
 const voiceListSchema = z.object({ items: z.array(voiceDtoSchema) });
+
+const projectPromptListSchema = z.object({ items: z.array(projectPromptDtoSchema) });
 
 const enrichResponseSchema = z.object({
   enrichedPrompt: z.string(),
@@ -257,6 +262,19 @@ export const api = {
       requestJson(`/voices/${id}`, voiceDtoSchema, { method: 'PATCH', body: input }),
     remove: async (id: string): Promise<void> => {
       await send(`/voices/${id}`, { method: 'DELETE' });
+    },
+  },
+  projectPrompts: {
+    list: () => requestJson('/project-prompts', projectPromptListSchema),
+    create: (input: CreateProjectPromptInput) =>
+      requestJson('/project-prompts', projectPromptDtoSchema, { method: 'POST', body: input }),
+    update: (id: string, input: UpdateProjectPromptInput) =>
+      requestJson(`/project-prompts/${id}`, projectPromptDtoSchema, {
+        method: 'PATCH',
+        body: input,
+      }),
+    remove: async (id: string): Promise<void> => {
+      await send(`/project-prompts/${id}`, { method: 'DELETE' });
     },
   },
   models: {

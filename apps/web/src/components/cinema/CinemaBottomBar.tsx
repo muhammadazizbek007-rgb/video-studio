@@ -31,6 +31,7 @@ import { useRef, useState } from 'react';
 import { MentionListbox } from '@/components/mentions/MentionListbox';
 import { useMentionAutocomplete } from '@/components/mentions/useMentionAutocomplete';
 import { Badge, Button, Input, Surface } from '@/components/ui';
+import { useProjectPrompts } from '@/hooks/useProjectPrompts';
 import { useVoices } from '@/hooks/useVoices';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
@@ -103,11 +104,13 @@ export function CinemaBottomBar({
   // face silently turns back into plain text.
   const promptRef = useRef<HTMLInputElement | null>(null);
   const voices = useVoices();
+  const projectPrompts = useProjectPrompts();
   const mentions = useMentionAutocomplete<HTMLInputElement>({
     value: prompt,
     onChange: onPromptChange,
     elements,
     voices: voices.data ?? [],
+    projectPrompts: projectPrompts.data ?? [],
     voicePrefix: t('voices.inlinePrefix'),
     fieldRef: promptRef,
   });

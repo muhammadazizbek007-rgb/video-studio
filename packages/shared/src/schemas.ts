@@ -141,6 +141,41 @@ export const updateVoiceSchema = z.object({
 });
 export type UpdateVoiceInput = z.infer<typeof updateVoiceSchema>;
 
+/**
+ * A block of project context, saved once and pasted into prompts.
+ *
+ * Every clip in a campaign shares the same facts — what the product is, what the packaging
+ * looks like, the tone of voice, what must never appear. Retyping them is how they drift:
+ * the tenth prompt says something slightly different from the first, and the clips stop
+ * matching. Written once and mentioned by name, they stay identical.
+ *
+ * Same shape as a voice on purpose, and deliberately a separate thing: a voice describes who
+ * speaks and is also attachable as a narrator, while this is scene context and only ever
+ * text. Folding them together would make one list where half the entries are wrong for
+ * whichever job you came for.
+ */
+export const projectPromptDtoSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  name: z.string().min(1),
+  prompt: z.string().min(1),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ProjectPromptDto = z.infer<typeof projectPromptDtoSchema>;
+
+export const createProjectPromptSchema = z.object({
+  name: z.string().min(1).max(80),
+  prompt: z.string().min(1).max(4000),
+});
+export type CreateProjectPromptInput = z.infer<typeof createProjectPromptSchema>;
+
+export const updateProjectPromptSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  prompt: z.string().min(1).max(4000).optional(),
+});
+export type UpdateProjectPromptInput = z.infer<typeof updateProjectPromptSchema>;
+
 export const updateGenerationSchema = z.object({
   saved: z.boolean().optional(),
 });

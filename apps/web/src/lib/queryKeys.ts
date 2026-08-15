@@ -5,6 +5,7 @@ export const qk = {
   generation: (id: string) => ['generation', id],
   elements: ['elements'],
   voices: ['voices'],
+  projectPrompts: ['project-prompts'],
   images: ['images'],
   uploads: ['uploads'],
   storyboards: ['storyboards'],

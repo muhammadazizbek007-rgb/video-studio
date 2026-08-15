@@ -1,5 +1,5 @@
 import type { VideoElementCategory } from '@video-studio/shared';
-import { Mic } from 'lucide-react';
+import { Mic, NotebookPen } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
 import type { TranslationKey } from '@/i18n/translations';
 import type { MentionSuggestion } from './useMentionAutocomplete';
@@ -18,8 +18,14 @@ const CATEGORY_KEYS: Record<VideoElementCategory, TranslationKey> = {
   general: 'mentions.category.general',
 };
 
-/** The one heading voices sit under; elements keep their category headings. */
+/** Headings for the two non-element kinds; elements keep their category headings. */
 const VOICE_GROUP_KEY: TranslationKey = 'mentions.category.voice';
+const PROJECT_GROUP_KEY: TranslationKey = 'mentions.category.project';
+
+function groupKeyOf(suggestion: MentionSuggestion): TranslationKey {
+  if (suggestion.kind === 'element') return CATEGORY_KEYS[suggestion.element.category];
+  return suggestion.kind === 'voice' ? VOICE_GROUP_KEY : PROJECT_GROUP_KEY;
+}
 
 export interface MentionListboxProps {
   id: string;
@@ -52,17 +58,10 @@ export function MentionListbox({
     >
       {suggestions.map((suggestion, index) => {
         const previous = suggestions[index - 1];
-        // A heading appears wherever the group changes; voices are one group of their own.
-        const group =
-          suggestion.kind === 'element'
-            ? CATEGORY_KEYS[suggestion.element.category]
-            : VOICE_GROUP_KEY;
-        const previousGroup =
-          previous === undefined
-            ? null
-            : previous.kind === 'element'
-              ? CATEGORY_KEYS[previous.element.category]
-              : VOICE_GROUP_KEY;
+        // A heading appears wherever the group changes; voices and project prompts are each
+        // one group of their own, elements keep their categories.
+        const group = groupKeyOf(suggestion);
+        const previousGroup = previous === undefined ? null : groupKeyOf(previous);
 
         return (
           // biome-ignore lint/a11y/useFocusableInteractive: WAI-ARIA combobox; focus stays in the field and the active option is pointed at by aria-activedescendant
@@ -98,6 +97,10 @@ export function MentionListbox({
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-current/10">
                   <Mic className="size-4 opacity-70" aria-hidden />
                 </span>
+              ) : suggestion.kind === 'project' ? (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-current/10">
+                  <NotebookPen className="size-4 opacity-70" aria-hidden />
+                </span>
               ) : suggestion.element.imageUrl ? (
                 <img
                   src={suggestion.element.imageUrl}
@@ -109,12 +112,18 @@ export function MentionListbox({
               )}
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold">
-                  {suggestion.kind === 'voice' ? suggestion.voice.name : suggestion.element.handle}
+                  {suggestion.kind === 'element'
+                    ? suggestion.element.handle
+                    : suggestion.kind === 'voice'
+                      ? suggestion.voice.name
+                      : suggestion.projectPrompt.name}
                 </span>
                 <span className="block truncate text-xs opacity-60">
-                  {suggestion.kind === 'voice'
-                    ? suggestion.voice.prompt
-                    : `${suggestion.element.name}${suggestion.element.description ? ` · ${suggestion.element.description}` : ''}`}
+                  {suggestion.kind === 'element'
+                    ? `${suggestion.element.name}${suggestion.element.description ? ` · ${suggestion.element.description}` : ''}`
+                    : suggestion.kind === 'voice'
+                      ? suggestion.voice.prompt
+                      : suggestion.projectPrompt.prompt}
                 </span>
               </span>
             </button>

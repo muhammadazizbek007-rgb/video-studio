@@ -1,4 +1,9 @@
-import type { ElementDto, VideoElementCategory, VoiceDto } from '@video-studio/shared';
+import type {
+  ElementDto,
+  ProjectPromptDto,
+  VideoElementCategory,
+  VoiceDto,
+} from '@video-studio/shared';
 import type { ChangeEvent, KeyboardEvent, RefObject } from 'react';
 import { useId, useMemo, useState } from 'react';
 import { markElementUsed, readElementUsage } from '@/lib/elementUsage';
@@ -36,13 +41,15 @@ type MentionField = HTMLTextAreaElement | HTMLInputElement;
  */
 export type MentionSuggestion =
   | { kind: 'element'; id: string; element: ElementDto }
-  | { kind: 'voice'; id: string; voice: VoiceDto };
+  | { kind: 'voice'; id: string; voice: VoiceDto }
+  | { kind: 'project'; id: string; projectPrompt: ProjectPromptDto };
 
 export interface MentionAutocompleteInput<T extends MentionField> {
   value: string;
   onChange: (value: string) => void;
   elements: readonly ElementDto[];
   voices?: readonly VoiceDto[];
+  projectPrompts?: readonly ProjectPromptDto[];
   /**
    * Prefix put in front of an inserted voice description.
    *
@@ -72,6 +79,7 @@ export function useMentionAutocomplete<T extends MentionField>({
   onChange,
   elements,
   voices = [],
+  projectPrompts = [],
   voicePrefix = '',
   fieldRef,
   maxLength,
@@ -114,8 +122,19 @@ export function useMentionAutocomplete<T extends MentionField>({
       .slice(0, MAX_SUGGESTIONS)
       .map((voice): MentionSuggestion => ({ kind: 'voice', id: voice.id, voice }));
 
-    return [...matchedElements, ...matchedVoices].slice(0, MAX_SUGGESTIONS);
-  }, [elements, voices, query]);
+    const matchedProjects = projectPrompts
+      .filter((entry) => needle === '' || entry.name.toLowerCase().includes(needle))
+      .slice(0, MAX_SUGGESTIONS)
+      .map(
+        (projectPrompt): MentionSuggestion => ({
+          kind: 'project',
+          id: projectPrompt.id,
+          projectPrompt,
+        }),
+      );
+
+    return [...matchedElements, ...matchedVoices, ...matchedProjects].slice(0, MAX_SUGGESTIONS);
+  }, [elements, voices, projectPrompts, query]);
 
   const open = query !== null && suggestions.length > 0;
 
@@ -142,10 +161,13 @@ export function useMentionAutocomplete<T extends MentionField>({
     const before = value.slice(0, start);
     const after = value.slice(caret);
 
+    // Only an element stays a token; everything else is pasted as the words it stands for.
     const written =
       suggestion.kind === 'element'
         ? suggestion.element.handle
-        : `${voicePrefix} ${suggestion.voice.prompt}`.trim();
+        : suggestion.kind === 'voice'
+          ? `${voicePrefix} ${suggestion.voice.prompt}`.trim()
+          : suggestion.projectPrompt.prompt;
 
     const merged = `${before}${written} ${after}`;
     onChange(maxLength ? merged.slice(0, maxLength) : merged);

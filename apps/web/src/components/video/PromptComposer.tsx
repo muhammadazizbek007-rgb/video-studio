@@ -10,6 +10,7 @@ import { useRef, useState } from 'react';
 import { MentionListbox } from '@/components/mentions/MentionListbox';
 import { useMentionAutocomplete } from '@/components/mentions/useMentionAutocomplete';
 import { Button, Surface, Textarea } from '@/components/ui';
+import { useProjectPrompts } from '@/hooks/useProjectPrompts';
 import { useVoices } from '@/hooks/useVoices';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { api } from '@/lib/api';
@@ -103,11 +104,13 @@ export function PromptComposer({
   const [enrichError, setEnrichError] = useState('');
 
   const voices = useVoices();
+  const projectPrompts = useProjectPrompts();
   const mentions = useMentionAutocomplete<HTMLTextAreaElement>({
     value,
     onChange,
     elements,
     voices: voices.data ?? [],
+    projectPrompts: projectPrompts.data ?? [],
     voicePrefix: t('voices.inlinePrefix'),
     fieldRef: textareaRef,
     maxLength,

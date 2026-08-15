@@ -1,6 +1,7 @@
 import type { ImageModelSpec, VeoModelSpec } from '@video-studio/shared';
 import { LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ProjectPromptManager } from '@/components/project/ProjectPromptManager';
 import { McpConnector } from '@/components/settings/McpConnector';
 import { Badge, Button, Card, Select, Skeleton, ThemeToggle } from '@/components/ui';
 import { useTheme } from '@/components/ui/useTheme';
@@ -62,6 +63,8 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">{t('settings.title')}</h1>
+
+      <ProjectPromptManager />
 
       <VoiceManager />
 

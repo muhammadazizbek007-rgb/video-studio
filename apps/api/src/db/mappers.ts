@@ -3,6 +3,7 @@ import type {
   ElementRef,
   GenerationDto,
   ImageGenerationDto,
+  ProjectPromptDto,
   StoryboardDto,
   StoryboardSegmentDto,
   UploadDto,
@@ -12,6 +13,7 @@ import type {
 import type { ElementDoc } from './models/element.js';
 import type { GenerationDoc } from './models/generation.js';
 import type { ImageGenerationDoc } from './models/imageGeneration.js';
+import type { ProjectPromptDoc } from './models/projectPrompt.js';
 import type { StoryboardDoc } from './models/storyboard.js';
 import type { UploadDoc } from './models/upload.js';
 import type { UserDoc } from './models/user.js';
@@ -164,6 +166,17 @@ export function toStoryboardDto(
   assignOptional(dto, 'exportUrl', doc.exportUrl);
   assignOptional(dto, 'exportError', doc.exportError);
   return dto;
+}
+
+export function toProjectPromptDto(doc: ProjectPromptDoc): ProjectPromptDto {
+  return {
+    id: doc._id.toString(),
+    userId: doc.userId.toString(),
+    name: doc.name,
+    prompt: doc.prompt,
+    createdAt: iso(doc.createdAt),
+    updatedAt: iso(doc.updatedAt),
+  };
 }
 
 export function toVoiceDto(doc: VoiceDoc): VoiceDto {

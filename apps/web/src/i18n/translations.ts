@@ -140,6 +140,26 @@ const ru = {
   'mode.short.image_to_video': 'Изображение',
   'mode.short.reference_to_video': 'Референсы',
 
+  'projectPrompts.title': 'Общие промпты проекта',
+  'projectPrompts.subtitle':
+    'То, что повторяется в каждом ролике: описание товара, упаковка, тон, запреты. Опишите один раз и подставляйте через @ — тогда сотый ролик получит ровно то же, что первый.',
+  'projectPrompts.add': 'Добавить промпт',
+  'projectPrompts.empty': 'Пока пусто. Добавьте первый — он появится в списке по @.',
+  'projectPrompts.newTitle': 'Новый общий промпт',
+  'projectPrompts.editTitle': 'Изменить общий промпт',
+  'projectPrompts.formHint':
+    'Название нужно только вам — по нему вы найдёте промпт в списке. Текст уходит в модель как есть.',
+  'projectPrompts.name': 'Название',
+  'projectPrompts.namePlaceholder': 'Например: Бренд Dona',
+  'projectPrompts.prompt': 'Текст промпта',
+  'projectPrompts.promptPlaceholder':
+    'Газировка Dona в стеклянной бутылке 0,5 л, сине-белая этикетка с логотипом слева. Тон дружелюбный, без агрессивной рекламы. Никогда не показывать конкурентов.',
+  'projectPrompts.promptHint':
+    'Пишите фактами: что за товар, как выглядит упаковка, какой тон, чего быть не должно.',
+  'projectPrompts.bothRequired': 'Заполните название и текст',
+  'projectPrompts.saveFailed': 'Не удалось сохранить промпт',
+  'mentions.category.project': 'Промпты проекта',
+
   'voices.title': 'Голоса',
   'voices.subtitle':
     'Veo придумывает нового диктора для каждого ролика. Опишите голос один раз — и выбирайте его при генерации, чтобы во всех роликах говорил один человек.',
@@ -587,6 +607,26 @@ const uz: Dictionary = {
   'mode.short.image_to_video': 'Rasm',
   'mode.short.reference_to_video': 'Namunalar',
 
+  'projectPrompts.title': 'Loyihaning umumiy promptlari',
+  'projectPrompts.subtitle':
+    'Har bir rolikda takrorlanadigan narsalar: mahsulot ta’rifi, qadoq, ohang, taqiqlar. Bir marta yozing va @ orqali qo‘shing — yuzinchi rolik ham birinchisi bilan bir xil ma’lumot oladi.',
+  'projectPrompts.add': 'Prompt qo‘shish',
+  'projectPrompts.empty': 'Hozircha bo‘sh. Birinchisini qo‘shing — u @ ro‘yxatida chiqadi.',
+  'projectPrompts.newTitle': 'Yangi umumiy prompt',
+  'projectPrompts.editTitle': 'Umumiy promptni o‘zgartirish',
+  'projectPrompts.formHint':
+    'Nom faqat sizga kerak — ro‘yxatdan shu bo‘yicha topasiz. Matn modelga o‘zgarishsiz ketadi.',
+  'projectPrompts.name': 'Nomi',
+  'projectPrompts.namePlaceholder': 'Masalan: Dona brendi',
+  'projectPrompts.prompt': 'Prompt matni',
+  'projectPrompts.promptPlaceholder':
+    'Dona gazli ichimligi, 0,5 l shisha idishda, chapda logotipli ko‘k-oq yorliq. Ohang do‘stona. Raqobatchilarni hech qachon ko‘rsatmaslik.',
+  'projectPrompts.promptHint':
+    'Faktlar bilan yozing: mahsulot nima, qadoq qanday, ohang qanday, nima bo‘lmasligi kerak.',
+  'projectPrompts.bothRequired': 'Nom va matnni to‘ldiring',
+  'projectPrompts.saveFailed': 'Promptni saqlab bo‘lmadi',
+  'mentions.category.project': 'Loyiha promptlari',
+
   'voices.title': 'Ovozlar',
   'voices.subtitle':
     'Veo har bir rolik uchun yangi diktor o‘ylab topadi. Ovozni bir marta ta’riflang va generatsiyada tanlang — shunda hamma rolikda bitta odam gapiradi.',
@@ -1030,6 +1070,26 @@ const en: Dictionary = {
   'mode.short.text_to_video': 'Text',
   'mode.short.image_to_video': 'Image',
   'mode.short.reference_to_video': 'References',
+
+  'projectPrompts.title': 'Project prompts',
+  'projectPrompts.subtitle':
+    'What repeats in every clip: the product, the packaging, the tone, what must never appear. Write it once and paste it with @, so the hundredth clip is told exactly what the first was.',
+  'projectPrompts.add': 'Add a prompt',
+  'projectPrompts.empty': 'Nothing yet. Add one and it appears in the @ list.',
+  'projectPrompts.newTitle': 'New project prompt',
+  'projectPrompts.editTitle': 'Edit project prompt',
+  'projectPrompts.formHint':
+    'The name is only for you — it is how you find it in the list. The text reaches the model unchanged.',
+  'projectPrompts.name': 'Name',
+  'projectPrompts.namePlaceholder': 'For example: Dona brand',
+  'projectPrompts.prompt': 'Prompt text',
+  'projectPrompts.promptPlaceholder':
+    'Dona sparkling drink in a 0.5 l glass bottle, blue and white label with the logo on the left. Friendly tone, no hard selling. Never show competitors.',
+  'projectPrompts.promptHint':
+    'Write facts: what the product is, how the packaging looks, the tone, what must not appear.',
+  'projectPrompts.bothRequired': 'Fill in both the name and the text',
+  'projectPrompts.saveFailed': 'Could not save the prompt',
+  'mentions.category.project': 'Project prompts',
 
   'voices.title': 'Voices',
   'voices.subtitle':
