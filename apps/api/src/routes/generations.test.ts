@@ -356,6 +356,44 @@ describe('generation routes', () => {
   });
 });
 
+describe('GET /api/generations/:id/last-frame', () => {
+  it('answers with the record rather than failing when a frame cannot be cut', async () => {
+    const { cookie } = await signIn('lastframe@example.com');
+    const created = await createGeneration(cookie);
+    await app.inject({
+      method: 'POST',
+      url: `/api/generations/${created.id}/refresh`,
+      headers: { cookie },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/generations/${created.id}/last-frame`,
+      headers: { cookie },
+    });
+
+    // The fake driver's clip is not real video, so ffmpeg has nothing to cut. The point is
+    // that the request still answers: a clip without a frame is a clip that stays out of
+    // the tab, not a broken response.
+    expect(response.statusCode).toBe(200);
+    expect(parse<GenerationDto>(response.body).id).toBe(created.id);
+  });
+
+  it('will not cut a frame from somebody else’s clip', async () => {
+    const owner = await signIn('lastframe-owner@example.com');
+    const stranger = await signIn('lastframe-stranger@example.com');
+    const created = await createGeneration(owner.cookie);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/generations/${created.id}/last-frame`,
+      headers: { cookie: stranger.cookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+});
+
 describe('POST /api/generations/:id/extend', () => {
   /** A continuation needs a clip that actually finished, so the fake driver is run first. */
   async function completedGeneration(cookie: string): Promise<GenerationDto> {

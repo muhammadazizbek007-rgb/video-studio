@@ -25,6 +25,7 @@ import { ApiError, isApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { getStorage } from '../storage/index.js';
 import { checkVeoOperation, startVeoExtension, startVeoOperation } from '../vertex/veo.js';
+import { canExtractFrames, extractLastFrame } from './lastFrame.js';
 import { submitToVertex } from './veoQueue.js';
 
 export type GenerationDocument = HydratedDocument<GenerationDoc>;
@@ -287,6 +288,38 @@ export async function extendGeneration(
 }
 
 /**
+ * The clip's closing frame, taken once and kept.
+ *
+ * Called when a generation completes, and again from the route when an older clip is looked
+ * at for the first time — everything finished before this existed has no frame, and a
+ * migration that walked the whole history would spend ffmpeg on clips nobody asks for.
+ */
+export async function ensureLastFrame(doc: GenerationDocument): Promise<GenerationDocument> {
+  if (doc.resultLastFrameUrl || doc.status !== 'completed' || !doc.resultVideoUrl) return doc;
+  if (!(await canExtractFrames())) return doc;
+
+  try {
+    const frame = await extractLastFrame({
+      videoUrl: doc.resultVideoUrl,
+      userId: doc.userId.toString(),
+      generationId: doc._id.toString(),
+    });
+    doc.resultLastFrameUrl = frame.url;
+    doc.resultLastFramePath = frame.storagePath;
+    await doc.save();
+  } catch (error) {
+    // A clip whose frame cannot be cut is still a finished clip. It simply does not turn up
+    // in the last-frame tab, which is a smaller loss than failing the request that asked.
+    logger.warn(
+      { err: error, generationId: doc._id.toString() },
+      'could not extract the last frame of a clip',
+    );
+  }
+
+  return doc;
+}
+
+/**
  * Sends a clip that was still waiting for its slot when the process went away.
  *
  * The queue is in memory, so a deploy or a crash strands whatever was standing in it. The
@@ -421,6 +454,10 @@ export async function syncGeneration(doc: GenerationDocument): Promise<Generatio
       doc.resultVideoUrl = result.videoUrl;
       doc.resultStoragePath = result.storagePath;
       doc.errorMessage = undefined;
+      // Cut here rather than on demand: the clip is on disk, ffmpeg is warm, and the frame
+      // is wanted the moment the picker is opened. A failure is not the clip's problem —
+      // the video is finished either way, and the frame can still be taken later.
+      await ensureLastFrame(doc).catch(() => undefined);
     } else {
       doc.status = 'failed';
       doc.errorMessage = result.error;

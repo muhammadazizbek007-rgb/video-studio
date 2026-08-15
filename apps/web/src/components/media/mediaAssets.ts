@@ -119,6 +119,38 @@ export function videoToAsset(generation: GenerationDto): MediaAsset {
   return asset;
 }
 
+/**
+ * The closing frame of a finished clip, offered as a picture.
+ *
+ * This is how shots are chained by hand: the frame a clip ended on becomes the frame the
+ * next one starts from, so the second picks up exactly where the first stopped rather than
+ * approximately where it was described to.
+ *
+ * Only clips whose frame has actually been cut appear — one that has not been extracted yet
+ * would be a tile that selects nothing.
+ */
+export function lastFrameToAsset(generation: GenerationDto): MediaAsset | null {
+  const url = generation.resultLastFrameUrl;
+  if (!url) return null;
+
+  return {
+    key: `last-frame:${generation.id}`,
+    id: generation.id,
+    source: 'video',
+    kind: 'image',
+    url,
+    previewUrl: url,
+    title: generation.prompt,
+    badge: generation.stylePreset,
+    // Liking a frame would mean liking the clip, which is a different act with a different
+    // undo — so the tile is a picture to take, nothing more.
+    saved: false,
+    likeable: false,
+    deletable: false,
+    createdAt: generation.createdAt,
+  };
+}
+
 /** Newest first, the order every tab is expected to be in. */
 export function byNewest(a: MediaAsset, b: MediaAsset): number {
   return b.createdAt.localeCompare(a.createdAt);

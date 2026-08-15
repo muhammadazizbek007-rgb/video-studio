@@ -65,6 +65,14 @@ export const generationDtoSchema = z.object({
   lastFrameImageUrl: z.string().optional(),
   /** The dice roll this clip came from; re-using it reproduces the clip. */
   seed: z.number().int().optional(),
+  /**
+   * The closing frame of the finished clip, cut out of the video.
+   *
+   * Distinct from `lastFrameImageUrl`, which is the closing frame the user *asked* for.
+   * This is the one the model actually produced, and it is what the next clip starts from
+   * when shots are chained by hand.
+   */
+  resultLastFrameUrl: z.string().optional(),
   /** The saved voice this clip was narrated with, when one was chosen. */
   voiceId: z.string().optional(),
   elements: z.array(elementRefSchema),

@@ -6,6 +6,7 @@ import {
   type Images,
   Plus,
   RefreshCw,
+  SkipForward,
   Sparkles,
   TriangleAlert,
   Upload,
@@ -14,6 +15,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Modal, Spinner, Surface } from '@/components/ui';
 import { useElements, useUpdateElement } from '@/hooks/useElements';
+import { useEnsureLastFrames } from '@/hooks/useEnsureLastFrames';
 import { useGenerations, useUpdateGeneration } from '@/hooks/useGenerations';
 import {
   useDeleteImageGeneration,
@@ -34,9 +36,16 @@ import type { ElementCategoryFilter, ElementSort } from './ElementFilterBar';
 import { ElementFilterBar } from './ElementFilterBar';
 import { MediaTile } from './MediaTile';
 import type { MediaAsset } from './mediaAssets';
-import { byNewest, elementToAsset, imageToAsset, uploadToAsset, videoToAsset } from './mediaAssets';
+import {
+  byNewest,
+  elementToAsset,
+  imageToAsset,
+  lastFrameToAsset,
+  uploadToAsset,
+  videoToAsset,
+} from './mediaAssets';
 
-type TabId = 'uploads' | 'elements' | 'images' | 'videos' | 'liked';
+type TabId = 'uploads' | 'elements' | 'images' | 'lastFrames' | 'videos' | 'liked';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const VIDEO_TYPES = ['video/mp4'];
@@ -93,6 +102,13 @@ const TABS: readonly TabSpec[] = [
     emptyTitle: 'media.imagesEmpty',
     emptyBody: 'media.imagesEmptyBody',
     Icon: Sparkles,
+  },
+  {
+    id: 'lastFrames',
+    label: 'media.tabLastFrames',
+    emptyTitle: 'media.lastFramesEmpty',
+    emptyBody: 'media.lastFramesEmptyBody',
+    Icon: SkipForward,
   },
   {
     id: 'videos',
@@ -234,6 +250,15 @@ export function MediaPicker({
     [videos.generations],
   );
 
+  const lastFrameAssets = useMemo(
+    () =>
+      videos.generations
+        .map(lastFrameToAsset)
+        .filter((asset): asset is MediaAsset => asset !== null)
+        .sort(byNewest),
+    [videos.generations],
+  );
+
   // Liked is a view over the other four, not a collection of its own — nothing can be
   // liked here that is not already listed under its own tab.
   const likedAssets = useMemo(
@@ -248,7 +273,11 @@ export function MediaPicker({
   const visibleTabs = useMemo(
     () =>
       TABS.filter((spec) => {
-        if (spec.id === 'elements' || spec.id === 'images') return !wantsVideo;
+        // A frame slot takes a picture, so the last-frame tab belongs beside the other
+        // image sources and has nothing to offer a slot asking for a clip.
+        if (spec.id === 'elements' || spec.id === 'images' || spec.id === 'lastFrames') {
+          return !wantsVideo;
+        }
         if (spec.id === 'videos') return wantsVideo;
         return true;
       }),
@@ -268,6 +297,7 @@ export function MediaPicker({
     uploads: uploadAssets,
     elements: visibleElementAssets,
     images: imageAssets,
+    lastFrames: lastFrameAssets,
     videos: videoAssets,
     liked: likedAssets,
   };
@@ -276,6 +306,7 @@ export function MediaPicker({
     uploads: uploads.isPending,
     elements: elements.isPending,
     images: images.isPending,
+    lastFrames: videos.isLoading,
     videos: videos.isLoading,
     liked: uploads.isPending || images.isPending || videos.isLoading || elements.isPending,
   };
@@ -286,11 +317,16 @@ export function MediaPicker({
     uploads: uploads.isError,
     elements: elements.isError,
     images: images.isError,
+    lastFrames: videos.isError,
     videos: videos.isError,
     liked: uploads.isError || images.isError || videos.isError || elements.isError,
   };
 
   const active: TabSpec = visibleTabs.find((spec) => spec.id === tab) ?? UPLOADS_TAB;
+
+  // Only while the tab is actually open: cutting a frame costs an ffmpeg run, and doing it
+  // for a history nobody is looking at would be paying for nothing.
+  useEnsureLastFrames(videos.generations, open && active.id === 'lastFrames');
   const assets = assetsByTab[active.id];
   const loading = loadingByTab[active.id];
   const failed = failedByTab[active.id];

@@ -35,6 +35,9 @@ export interface GenerationDoc {
   status: VideoGenerationStatus;
   resultVideoUrl?: string;
   resultStoragePath?: string;
+  /** The clip's own closing frame, cut out once and kept — see services/lastFrame.ts. */
+  resultLastFrameUrl?: string;
+  resultLastFramePath?: string;
   errorMessage?: string;
   saved: boolean;
   referenceImageUrls: string[];
@@ -96,6 +99,8 @@ const generationSchema = new Schema<GenerationDoc>(
     status: { type: String, enum: STATUSES, required: true, default: 'pending', index: true },
     resultVideoUrl: { type: String },
     resultStoragePath: { type: String },
+    resultLastFrameUrl: { type: String },
+    resultLastFramePath: { type: String },
     errorMessage: { type: String },
     saved: { type: Boolean, required: true, default: false },
     referenceImageUrls: { type: [String], required: true, default: [] },

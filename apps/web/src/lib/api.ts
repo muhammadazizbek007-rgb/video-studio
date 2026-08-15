@@ -293,6 +293,8 @@ export const api = {
     remove: async (id: string): Promise<void> => {
       await send(`/generations/${id}`, { method: 'DELETE' });
     },
+    /** Cuts the clip's closing frame if it has not been cut yet, and returns the record. */
+    lastFrame: (id: string) => requestJson(`/generations/${id}/last-frame`, generationDtoSchema),
     refresh: (id: string) =>
       requestJson(`/generations/${id}/refresh`, generationDtoSchema, { method: 'POST' }),
     /** Continues a finished clip; the answer is the new generation, not the source. */

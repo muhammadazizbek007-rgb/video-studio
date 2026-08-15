@@ -80,6 +80,7 @@ export function toGenerationDto(doc: GenerationDoc): GenerationDto {
   assignOptional(dto, 'errorMessage', doc.errorMessage);
   assignOptional(dto, 'lastFrameImageUrl', doc.lastFrameImageUrl);
   assignOptional(dto, 'seed', doc.seed);
+  assignOptional(dto, 'resultLastFrameUrl', doc.resultLastFrameUrl);
   assignOptional(dto, 'voiceId', doc.voiceId?.toString());
   return dto;
 }

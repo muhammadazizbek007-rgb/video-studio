@@ -16,6 +16,7 @@ import { logger } from '../logger.js';
 import {
   createGeneration,
   deleteGeneration,
+  ensureLastFrame,
   extendGeneration,
   isTerminalStatus,
   listGenerations,
@@ -89,6 +90,24 @@ export const generationRoutes: FastifyPluginAsyncZod = async (fastify) => {
       const user = requireAuthUser(request);
       const doc = await extendGeneration(user, request.params.id, request.body);
       return await reply.code(201).send(toGenerationDto(doc));
+    },
+  );
+
+  /**
+   * The clip's own closing frame, cut on first request and kept.
+   *
+   * A GET rather than a POST despite doing work once: from the caller's side it reads a
+   * property of a finished clip, the answer never changes, and the picker asks for a
+   * screenful of them at a time. Everything generated before this existed has no frame yet,
+   * and walking the whole history at deploy time would spend ffmpeg on clips nobody opens.
+   */
+  fastify.get(
+    '/:id/last-frame',
+    { preHandler: fastify.authenticate, schema: { params: idParamsSchema } },
+    async (request) => {
+      const user = requireAuthUser(request);
+      const doc = await requireOwned(request.params.id, user.id);
+      return toGenerationDto(await ensureLastFrame(doc));
     },
   );
 

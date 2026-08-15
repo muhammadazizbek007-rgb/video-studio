@@ -243,6 +243,10 @@ const ru = {
   'media.tabElements': 'Элементы',
   'media.tabImages': 'Генерация изображений',
   'media.tabVideos': 'Видеопоколения',
+  'media.tabLastFrames': 'Последние кадры',
+  'media.lastFramesEmpty': 'Пока нет последних кадров',
+  'media.lastFramesEmptyBody':
+    'Здесь появится финальный кадр каждого готового ролика — берите его как первый кадр следующего, чтобы сцена продолжилась с того же места',
   'media.tabLiked': 'Понравилось',
   'media.uploadFile': 'Загрузить файл',
   'media.uploadHintImage': 'PNG, JPG или WebP до 10 МБ',
@@ -710,6 +714,10 @@ const uz: Dictionary = {
   'media.tabElements': 'Elementlar',
   'media.tabImages': 'Rasm generatsiyasi',
   'media.tabVideos': 'Video generatsiyalar',
+  'media.tabLastFrames': 'Oxirgi kadrlar',
+  'media.lastFramesEmpty': 'Hozircha oxirgi kadrlar yo‘q',
+  'media.lastFramesEmptyBody':
+    'Bu yerda har bir tayyor rolikning yakuniy kadri chiqadi — uni keyingi rolikning birinchi kadri sifatida oling, shunda sahna xuddi shu joydan davom etadi',
   'media.tabLiked': 'Yoqqanlar',
   'media.uploadFile': 'Fayl yuklash',
   'media.uploadHintImage': 'PNG, JPG yoki WebP, 10 MB gacha',
@@ -1174,6 +1182,10 @@ const en: Dictionary = {
   'media.tabElements': 'Elements',
   'media.tabImages': 'Image generations',
   'media.tabVideos': 'Video generations',
+  'media.tabLastFrames': 'Last frames',
+  'media.lastFramesEmpty': 'No last frames yet',
+  'media.lastFramesEmptyBody':
+    'The closing frame of every finished clip lands here — take one as the opening frame of the next and the scene carries on from the same place',
   'media.tabLiked': 'Liked',
   'media.uploadFile': 'Upload a file',
   'media.uploadHintImage': 'PNG, JPG or WebP up to 10 MB',
