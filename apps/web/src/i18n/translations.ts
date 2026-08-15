@@ -244,6 +244,7 @@ const ru = {
   'media.tabImages': 'Генерация изображений',
   'media.tabVideos': 'Видеопоколения',
   'media.tabLastFrames': 'Последние кадры',
+  'media.lastFramePrevious': 'Конец предыдущего кадра',
   'media.lastFramesEmpty': 'Пока нет последних кадров',
   'media.lastFramesEmptyBody':
     'Здесь появится финальный кадр каждого готового ролика — берите его как первый кадр следующего, чтобы сцена продолжилась с того же места',
@@ -715,6 +716,7 @@ const uz: Dictionary = {
   'media.tabImages': 'Rasm generatsiyasi',
   'media.tabVideos': 'Video generatsiyalar',
   'media.tabLastFrames': 'Oxirgi kadrlar',
+  'media.lastFramePrevious': 'Oldingi kadrning oxiri',
   'media.lastFramesEmpty': 'Hozircha oxirgi kadrlar yo‘q',
   'media.lastFramesEmptyBody':
     'Bu yerda har bir tayyor rolikning yakuniy kadri chiqadi — uni keyingi rolikning birinchi kadri sifatida oling, shunda sahna xuddi shu joydan davom etadi',
@@ -1183,6 +1185,7 @@ const en: Dictionary = {
   'media.tabImages': 'Image generations',
   'media.tabVideos': 'Video generations',
   'media.tabLastFrames': 'Last frames',
+  'media.lastFramePrevious': 'End of the previous shot',
   'media.lastFramesEmpty': 'No last frames yet',
   'media.lastFramesEmptyBody':
     'The closing frame of every finished clip lands here — take one as the opening frame of the next and the scene carries on from the same place',

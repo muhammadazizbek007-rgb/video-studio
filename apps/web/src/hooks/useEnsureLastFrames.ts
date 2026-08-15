@@ -20,7 +20,12 @@ const BATCH = 12;
  * Runs one request at a time on purpose: a dozen parallel ffmpeg calls on a single box is a
  * good way to make the whole studio stutter for everyone using it.
  */
-export function useEnsureLastFrames(generations: readonly GenerationDto[], enabled: boolean): void {
+export function useEnsureLastFrames(
+  generations: readonly GenerationDto[],
+  enabled: boolean,
+  /** Cut first when present: it is the frame the slot was opened for. */
+  priorityId?: string | null,
+): void {
   const queryClient = useQueryClient();
   // Asked-for ids, so reopening the tab does not re-request what is already in flight or
   // what genuinely has no frame to give.
@@ -38,6 +43,27 @@ export function useEnsureLastFrames(generations: readonly GenerationDto[], enabl
           !asked.current.has(generation.id),
       )
       .slice(0, BATCH);
+
+    // The preceding shot is what the slot is actually waiting for, so it must not sit
+    // behind eleven clips nobody asked about — and it must be in the batch at all, even
+    // when the history in front of it is longer than the batch.
+    if (priorityId) {
+      const wanted = generations.find(
+        (generation) =>
+          generation.id === priorityId &&
+          generation.status === 'completed' &&
+          Boolean(generation.resultVideoUrl) &&
+          !generation.resultLastFrameUrl &&
+          !asked.current.has(generation.id),
+      );
+      if (wanted) {
+        missing.splice(
+          missing.findIndex((item) => item.id === wanted.id),
+          1,
+        );
+        missing.unshift(wanted);
+      }
+    }
 
     if (missing.length === 0) return;
 
@@ -60,5 +86,5 @@ export function useEnsureLastFrames(generations: readonly GenerationDto[], enabl
     return () => {
       cancelled = true;
     };
-  }, [enabled, generations, queryClient]);
+  }, [enabled, generations, priorityId, queryClient]);
 }

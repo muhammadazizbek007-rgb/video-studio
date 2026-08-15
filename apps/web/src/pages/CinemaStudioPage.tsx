@@ -386,6 +386,18 @@ export function CinemaStudioPage() {
         ? (segmentVideos[segmentId(picking.index)] ?? null)
         : (slotImages[slotKey(picking.index, picking.slot)] ?? null);
 
+  /**
+   * The clip the slot most likely continues from: the shot immediately before it.
+   *
+   * Only for an opening-frame slot — a closing frame is what a shot ends on, and offering
+   * the previous shot's ending as this one's ending would be chaining backwards. The very
+   * first slot on the board has nothing before it.
+   */
+  const precedingClipId =
+    picking === null || picking.kind !== 'frame' || picking.slot !== 1 || picking.index === 0
+      ? null
+      : (segmentGenerationIds[segmentId(picking.index - 1)] ?? null);
+
   const pickerTitle =
     picking === null
       ? undefined
@@ -597,6 +609,7 @@ export function CinemaStudioPage() {
         onClose={() => setPicking(null)}
         accept={picking?.kind === 'video' ? 'video' : 'image'}
         selectedUrl={pickerSelection}
+        preferredLastFrameId={precedingClipId}
         title={pickerTitle}
         onSelect={(asset) => handlePicked(asset.url)}
       />

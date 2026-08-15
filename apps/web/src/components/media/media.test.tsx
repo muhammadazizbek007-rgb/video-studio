@@ -30,7 +30,12 @@ vi.mock('@/lib/api', () => ({
       remove: vi.fn(),
     },
     images: { list: () => listImages(), update: vi.fn(), remove: vi.fn() },
-    generations: { list: () => listGenerations(), update: vi.fn(), remove: vi.fn() },
+    generations: {
+      list: () => listGenerations(),
+      update: vi.fn(),
+      remove: vi.fn(),
+      lastFrame: vi.fn(),
+    },
     elements: {
       list: () => listElements(),
       create: (...args: unknown[]) => createElement(...args),
@@ -390,5 +395,78 @@ describe('MediaPicker', () => {
     await user.click(await screen.findByRole('button', { name: /add to liked/i }));
 
     expect(updateUpload).toHaveBeenCalledWith('up-1', { saved: true });
+  });
+
+  /**
+   * Chaining runs forward, so the frame someone opening a slot is after is the one the
+   * previous shot ended on — not whichever clip happens to be newest. Before this it was
+   * ordered by date, and the answer sat wherever history put it.
+   */
+  it('leads the last-frame tab with the shot this slot follows', async () => {
+    const user = userEvent.setup();
+    listGenerations.mockResolvedValue({
+      items: [
+        clip({
+          id: 'gen-newest',
+          prompt: 'снятый последним',
+          resultLastFrameUrl: 'https://example.test/newest-last.jpg',
+          createdAt: '2026-08-09T10:00:00.000Z',
+        }),
+        clip({
+          id: 'gen-previous',
+          prompt: 'предыдущий кадр раскадровки',
+          resultLastFrameUrl: 'https://example.test/previous-last.jpg',
+          createdAt: '2026-08-07T10:00:00.000Z',
+        }),
+      ],
+      nextCursor: null,
+    });
+
+    renderPicker(
+      <MediaPicker
+        open
+        accept="image"
+        onClose={noop}
+        onSelect={noop}
+        preferredLastFrameId="gen-previous"
+      />,
+    );
+
+    await user.click(await screen.findByRole('tab', { name: /Last frames/ }));
+
+    const grid = await screen.findByTestId('media-grid');
+    const tiles = within(grid).getAllByRole('button');
+    // First in the grid, and badged so it is obvious why it is first.
+    expect(tiles[0]).toHaveAccessibleName(/предыдущий кадр раскадровки/);
+    expect(within(grid).getByText('End of the previous shot')).toBeInTheDocument();
+  });
+
+  it('falls back to newest first when the slot has nothing before it', async () => {
+    const user = userEvent.setup();
+    listGenerations.mockResolvedValue({
+      items: [
+        clip({
+          id: 'gen-newest',
+          prompt: 'снятый последним',
+          resultLastFrameUrl: 'https://example.test/newest-last.jpg',
+          createdAt: '2026-08-09T10:00:00.000Z',
+        }),
+        clip({
+          id: 'gen-older',
+          prompt: 'снятый раньше',
+          resultLastFrameUrl: 'https://example.test/older-last.jpg',
+          createdAt: '2026-08-07T10:00:00.000Z',
+        }),
+      ],
+      nextCursor: null,
+    });
+
+    renderPicker(<MediaPicker open accept="image" onClose={noop} onSelect={noop} />);
+
+    await user.click(await screen.findByRole('tab', { name: /Last frames/ }));
+
+    const grid = await screen.findByTestId('media-grid');
+    expect(within(grid).getAllByRole('button')[0]).toHaveAccessibleName(/снятый последним/);
+    expect(within(grid).queryByText('End of the previous shot')).toBeNull();
   });
 });

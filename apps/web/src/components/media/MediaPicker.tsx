@@ -66,6 +66,15 @@ export interface MediaPickerProps {
   onSelect: (asset: MediaAsset) => void;
   /** Highlighted in the grid, so reopening the picker shows what is already in the slot. */
   selectedUrl?: string | null;
+  /**
+   * The clip whose closing frame this slot most likely wants — the shot immediately before
+   * it on the board.
+   *
+   * Chaining runs forward, so the frame someone opening slot 2.1 is after is almost always
+   * the one clip 1 ended on. It leads the tab and says so; the rest of the history stays
+   * underneath, because "almost always" is not always.
+   */
+  preferredLastFrameId?: string | null;
   title?: string;
   description?: string;
 }
@@ -140,6 +149,7 @@ export function MediaPicker({
   accept,
   onSelect,
   selectedUrl,
+  preferredLastFrameId,
   title,
   description,
 }: MediaPickerProps) {
@@ -250,14 +260,26 @@ export function MediaPicker({
     [videos.generations],
   );
 
-  const lastFrameAssets = useMemo(
-    () =>
-      videos.generations
-        .map(lastFrameToAsset)
-        .filter((asset): asset is MediaAsset => asset !== null)
-        .sort(byNewest),
-    [videos.generations],
-  );
+  const lastFrameAssets = useMemo(() => {
+    const assets = videos.generations
+      .map(lastFrameToAsset)
+      .filter((asset): asset is MediaAsset => asset !== null)
+      .sort(byNewest);
+
+    if (!preferredLastFrameId) return assets;
+
+    // Pulled to the front rather than filtered to one: the preceding shot is the answer
+    // nine times out of ten, and the tenth is someone reaching further back on purpose.
+    const preferred = assets.find((asset) => asset.id === preferredLastFrameId);
+    if (!preferred) return assets;
+
+    return [
+      // The badge, not a subtitle: the tile shows a badge over the picture and ignores
+      // subtitles entirely, so a subtitle would have been a label nobody could read.
+      { ...preferred, badge: t('media.lastFramePrevious') },
+      ...assets.filter((asset) => asset.id !== preferredLastFrameId),
+    ];
+  }, [videos.generations, preferredLastFrameId, t]);
 
   // Liked is a view over the other four, not a collection of its own — nothing can be
   // liked here that is not already listed under its own tab.
@@ -326,7 +348,7 @@ export function MediaPicker({
 
   // Only while the tab is actually open: cutting a frame costs an ffmpeg run, and doing it
   // for a history nobody is looking at would be paying for nothing.
-  useEnsureLastFrames(videos.generations, open && active.id === 'lastFrames');
+  useEnsureLastFrames(videos.generations, open && active.id === 'lastFrames', preferredLastFrameId);
   const assets = assetsByTab[active.id];
   const loading = loadingByTab[active.id];
   const failed = failedByTab[active.id];
