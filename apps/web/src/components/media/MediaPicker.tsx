@@ -67,14 +67,18 @@ export interface MediaPickerProps {
   /** Highlighted in the grid, so reopening the picker shows what is already in the slot. */
   selectedUrl?: string | null;
   /**
-   * The clip whose closing frame this slot most likely wants — the shot immediately before
-   * it on the board.
+   * Narrows the last-frame tab to the one clip this slot continues from.
    *
-   * Chaining runs forward, so the frame someone opening slot 2.1 is after is almost always
-   * the one clip 1 ended on. It leads the tab and says so; the rest of the history stays
-   * underneath, because "almost always" is not always.
+   * Three states, and the difference matters:
+   *   `undefined` — not a chaining slot (the studio, a closing-frame slot). Full history.
+   *   a clip id   — a storyboard opening frame: only what the previous shot ended on.
+   *   `null`      — a chaining slot with nothing before it. Deliberately empty.
+   *
+   * Scoped rather than merely sorted because a wall of old endings is where the wrong one
+   * gets picked: on this slot exactly one frame continues the film, and the rest are
+   * near-identical thumbnails inviting a mistake.
    */
-  preferredLastFrameId?: string | null;
+  restrictLastFramesTo?: string | null;
   title?: string;
   description?: string;
 }
@@ -149,7 +153,7 @@ export function MediaPicker({
   accept,
   onSelect,
   selectedUrl,
-  preferredLastFrameId,
+  restrictLastFramesTo,
   title,
   description,
 }: MediaPickerProps) {
@@ -266,20 +270,17 @@ export function MediaPicker({
       .filter((asset): asset is MediaAsset => asset !== null)
       .sort(byNewest);
 
-    if (!preferredLastFrameId) return assets;
+    if (restrictLastFramesTo === undefined) return assets;
+    if (restrictLastFramesTo === null) return [];
 
-    // Pulled to the front rather than filtered to one: the preceding shot is the answer
-    // nine times out of ten, and the tenth is someone reaching further back on purpose.
-    const preferred = assets.find((asset) => asset.id === preferredLastFrameId);
-    if (!preferred) return assets;
-
-    return [
-      // The badge, not a subtitle: the tile shows a badge over the picture and ignores
-      // subtitles entirely, so a subtitle would have been a label nobody could read.
-      { ...preferred, badge: t('media.lastFramePrevious') },
-      ...assets.filter((asset) => asset.id !== preferredLastFrameId),
-    ];
-  }, [videos.generations, preferredLastFrameId, t]);
+    return (
+      assets
+        .filter((asset) => asset.id === restrictLastFramesTo)
+        // The badge, not a subtitle: the tile draws a badge over the picture and ignores
+        // subtitles entirely, so a subtitle would have been a label nobody could read.
+        .map((asset) => ({ ...asset, badge: t('media.lastFramePrevious') }))
+    );
+  }, [videos.generations, restrictLastFramesTo, t]);
 
   // Liked is a view over the other four, not a collection of its own — nothing can be
   // liked here that is not already listed under its own tab.
@@ -346,9 +347,13 @@ export function MediaPicker({
 
   const active: TabSpec = visibleTabs.find((spec) => spec.id === tab) ?? UPLOADS_TAB;
 
+  // "Nothing generated yet" would be the wrong sentence here: plenty may exist, it is the
+  // one shot this slot follows that has no finished clip.
+  const scopedLastFrames = active.id === 'lastFrames' && restrictLastFramesTo !== undefined;
+
   // Only while the tab is actually open: cutting a frame costs an ffmpeg run, and doing it
   // for a history nobody is looking at would be paying for nothing.
-  useEnsureLastFrames(videos.generations, open && active.id === 'lastFrames', preferredLastFrameId);
+  useEnsureLastFrames(videos.generations, open && active.id === 'lastFrames', restrictLastFramesTo);
   const assets = assetsByTab[active.id];
   const loading = loadingByTab[active.id];
   const failed = failedByTab[active.id];
@@ -463,10 +468,18 @@ export function MediaPicker({
         {/* An empty library and an empty result set need different words — "no elements yet"
             under an active search would read as if the ones just created were gone. */}
         <p className="text-sm font-semibold">
-          {narrowedElements ? t('elementFilter.noMatches') : t(active.emptyTitle)}
+          {narrowedElements
+            ? t('elementFilter.noMatches')
+            : scopedLastFrames
+              ? t('media.lastFrameNoPrevious')
+              : t(active.emptyTitle)}
         </p>
         <p className="max-w-sm text-xs text-text-muted">
-          {narrowedElements ? t('elementFilter.noMatchesBody') : t(active.emptyBody)}
+          {narrowedElements
+            ? t('elementFilter.noMatchesBody')
+            : scopedLastFrames
+              ? t('media.lastFrameNoPreviousBody')
+              : t(active.emptyBody)}
         </p>
         {active.id === 'elements' && !narrowedElements ? (
           <Button

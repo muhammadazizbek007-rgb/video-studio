@@ -245,6 +245,9 @@ const ru = {
   'media.tabVideos': 'Видеопоколения',
   'media.tabLastFrames': 'Последние кадры',
   'media.lastFramePrevious': 'Конец предыдущего кадра',
+  'media.lastFrameNoPrevious': 'Предыдущий ролик ещё не снят',
+  'media.lastFrameNoPreviousBody':
+    'Сюда попадает только последний кадр ролика, который идёт перед этим. Снимите предыдущий сегмент — и его финальный кадр появится здесь',
   'media.lastFramesEmpty': 'Пока нет последних кадров',
   'media.lastFramesEmptyBody':
     'Здесь появится финальный кадр каждого готового ролика — берите его как первый кадр следующего, чтобы сцена продолжилась с того же места',
@@ -717,6 +720,9 @@ const uz: Dictionary = {
   'media.tabVideos': 'Video generatsiyalar',
   'media.tabLastFrames': 'Oxirgi kadrlar',
   'media.lastFramePrevious': 'Oldingi kadrning oxiri',
+  'media.lastFrameNoPrevious': 'Oldingi rolik hali olinmagan',
+  'media.lastFrameNoPreviousBody':
+    'Bu yerga faqat shu kadrdan oldingi rolikning oxirgi kadri tushadi. Oldingi segmentni oling — yakuniy kadri shu yerda paydo bo‘ladi',
   'media.lastFramesEmpty': 'Hozircha oxirgi kadrlar yo‘q',
   'media.lastFramesEmptyBody':
     'Bu yerda har bir tayyor rolikning yakuniy kadri chiqadi — uni keyingi rolikning birinchi kadri sifatida oling, shunda sahna xuddi shu joydan davom etadi',
@@ -1186,6 +1192,9 @@ const en: Dictionary = {
   'media.tabVideos': 'Video generations',
   'media.tabLastFrames': 'Last frames',
   'media.lastFramePrevious': 'End of the previous shot',
+  'media.lastFrameNoPrevious': 'The previous shot has not been filmed yet',
+  'media.lastFrameNoPreviousBody':
+    'Only the closing frame of the shot before this one lands here. Generate the previous segment and its final frame appears',
   'media.lastFramesEmpty': 'No last frames yet',
   'media.lastFramesEmptyBody':
     'The closing frame of every finished clip lands here — take one as the opening frame of the next and the scene carries on from the same place',

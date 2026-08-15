@@ -398,11 +398,11 @@ describe('MediaPicker', () => {
   });
 
   /**
-   * Chaining runs forward, so the frame someone opening a slot is after is the one the
-   * previous shot ended on — not whichever clip happens to be newest. Before this it was
-   * ordered by date, and the answer sat wherever history put it.
+   * On an opening-frame slot exactly one frame continues the film. Everything else in the
+   * history is a near-identical thumbnail inviting the wrong pick, so the tab is narrowed
+   * rather than merely reordered.
    */
-  it('leads the last-frame tab with the shot this slot follows', async () => {
+  it('offers only the shot this slot follows', async () => {
     const user = userEvent.setup();
     listGenerations.mockResolvedValue({
       items: [
@@ -428,7 +428,7 @@ describe('MediaPicker', () => {
         accept="image"
         onClose={noop}
         onSelect={noop}
-        preferredLastFrameId="gen-previous"
+        restrictLastFramesTo="gen-previous"
       />,
     );
 
@@ -436,12 +436,44 @@ describe('MediaPicker', () => {
 
     const grid = await screen.findByTestId('media-grid');
     const tiles = within(grid).getAllByRole('button');
-    // First in the grid, and badged so it is obvious why it is first.
+    expect(tiles).toHaveLength(1);
     expect(tiles[0]).toHaveAccessibleName(/предыдущий кадр раскадровки/);
     expect(within(grid).getByText('End of the previous shot')).toBeInTheDocument();
   });
 
-  it('falls back to newest first when the slot has nothing before it', async () => {
+  it('says the previous shot is missing rather than offering the whole history', async () => {
+    const user = userEvent.setup();
+    listGenerations.mockResolvedValue({
+      items: [
+        clip({
+          id: 'gen-old',
+          prompt: 'что-то снятое раньше',
+          resultLastFrameUrl: 'https://example.test/old-last.jpg',
+        }),
+      ],
+      nextCursor: null,
+    });
+
+    renderPicker(
+      <MediaPicker
+        open
+        accept="image"
+        onClose={noop}
+        onSelect={noop}
+        restrictLastFramesTo={null}
+      />,
+    );
+
+    await user.click(await screen.findByRole('tab', { name: /Last frames/ }));
+
+    expect(
+      await screen.findByText('The previous shot has not been filmed yet'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/что-то снятое раньше/)).toBeNull();
+  });
+
+  // The studio is not chaining a board, so it keeps the whole library.
+  it('leaves the tab unrestricted when the slot is not part of a chain', async () => {
     const user = userEvent.setup();
     listGenerations.mockResolvedValue({
       items: [

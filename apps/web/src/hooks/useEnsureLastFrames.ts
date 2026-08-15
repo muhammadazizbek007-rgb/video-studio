@@ -24,7 +24,7 @@ export function useEnsureLastFrames(
   generations: readonly GenerationDto[],
   enabled: boolean,
   /** Cut first when present: it is the frame the slot was opened for. */
-  priorityId?: string | null,
+  priorityId?: string | null | undefined,
 ): void {
   const queryClient = useQueryClient();
   // Asked-for ids, so reopening the tab does not re-request what is already in flight or
