@@ -180,15 +180,57 @@ function describeStylePreset(stylePreset: string | undefined): string | null {
   return STYLE_PRESET_PROMPTS[style] ?? `${style} style`;
 }
 
+/** An instruction appended after the scene, and how readily it is given up for room. */
+interface TailPart {
+  text: string;
+  /** Lower goes first. Rank 1 is the studio's own; the higher ranks are the user's doing. */
+  rank: number;
+}
+
+/**
+ * Joins the scene to its instructions, dropping instructions until the whole thing fits.
+ *
+ * Dropping changes which parts are present, never their order — Veo's guidance is that a
+ * prompt reads as an ordered description, so a surviving camera line stays where it was
+ * rather than being resorted by rank.
+ */
+function assemble(opening: string, tail: TailPart[]): string {
+  const kept = [...tail];
+  const total = () =>
+    [opening, ...kept.map((part) => part.text)].filter(Boolean).join(SEPARATOR).length;
+
+  // Giving up an instruction only ever buys room for a scene that could fit whole. A scene
+  // already past the ceiling on its own is cut either way, so dropping the guardrails too
+  // would pay their full price and get nothing back.
+  if (opening.length <= MAX_PROMPT_CHARS) {
+    for (const part of [...tail].sort((a, b) => a.rank - b.rank)) {
+      if (total() <= MAX_PROMPT_CHARS) break;
+      kept.splice(kept.indexOf(part), 1);
+    }
+  }
+
+  const suffix = kept.map((part) => part.text).join(SEPARATOR);
+  const room = Math.max(0, MAX_PROMPT_CHARS - suffix.length - (suffix ? SEPARATOR.length : 0));
+  const trimmed =
+    opening.length > room ? `${opening.slice(0, Math.max(0, room - 1)).trimEnd()}…` : opening;
+
+  return [trimmed, suffix].filter(Boolean).join(SEPARATOR);
+}
+
 /**
  * Assembles the final Veo prompt in scene -> style -> camera -> audio -> continuity order.
  *
- * The instructions after the scene are trimmed for, not trimmed away. Truncating the joined
- * string is what a length cap invites, and it silently drops whatever sits at the end — so a
- * long enriched scene used to cost the shot its camera direction, and would now cost it the
- * continuity clause, which is exactly the request that must never be the one to go. The cap
- * is spent on the scene instead, since a scene is the one part that can lose its tail and
- * still say what it means.
+ * Something has to give when the assembly runs past the ceiling, and for a long time the
+ * answer was the scene's tail: spend the cap on the instructions, cut the scene to fit. That
+ * held only while a scene was scenery, where losing the last sentence costs a detail. It is
+ * false the moment someone writes the line their character has to say, because that line goes
+ * at the end — and a shot was generated whose entire script had been cut off before it left
+ * the building, which the model then wrote for itself.
+ *
+ * So the order of sacrifice is by authorship. The continuity clause is ours and goes first;
+ * style and camera come from pickers the user set, so they go next; the audio line stays
+ * longest because it governs the speech someone bothered to write out. Only a scene that
+ * overruns the ceiling on its own is cut, and by then nothing else is left to give up.
  */
 export function buildVeoPrompt(input: PromptInput): string {
   const scene = (input.enrichedPrompt ?? input.prompt ?? '').trim();
@@ -197,36 +239,31 @@ export function buildVeoPrompt(input: PromptInput): string {
   const opening =
     input.hasReferenceImage && scene ? `Starting from the provided first frame: ${scene}` : scene;
 
-  const tail: string[] = [];
+  const tail: TailPart[] = [];
 
   const style = describeStylePreset(input.stylePreset);
-  if (style) tail.push(style);
+  if (style) tail.push({ text: style, rank: 2 });
 
   const camera = describeCameraMotion(input.cameraMotion);
-  if (camera) tail.push(camera);
+  if (camera) tail.push({ text: camera, rank: 3 });
 
   const voice = input.voicePrompt?.trim();
   if (input.supportsAudio && voice) {
     // The default audio line is skipped on purpose. It ends with "no spoken narration",
     // which would tell the model to stay silent in the same breath as describing who is
     // speaking — and a prompt that contradicts itself gets whichever half the model likes.
-    tail.push(`Narrated by: ${voice}`);
+    tail.push({ text: `Narrated by: ${voice}`, rank: 4 });
   } else if (input.supportsAudio && !AUDIO_KEYWORDS.test(scene)) {
-    tail.push(DEFAULT_AUDIO_PROMPT);
+    tail.push({ text: DEFAULT_AUDIO_PROMPT, rank: 4 });
   }
 
   // An empty request stays empty: there is no shot to keep coherent, and a prompt that is
   // nothing but guardrails would describe a scene the user never asked for.
   if (opening === '' && tail.length === 0) return '';
 
-  tail.push(PHYSICAL_CONSISTENCY_PROMPT);
+  tail.push({ text: PHYSICAL_CONSISTENCY_PROMPT, rank: 1 });
 
-  const suffix = tail.join('. ');
-  const room = Math.max(0, MAX_PROMPT_CHARS - suffix.length - SEPARATOR.length);
-  const trimmed =
-    opening.length > room ? `${opening.slice(0, Math.max(0, room - 1)).trimEnd()}…` : opening;
-
-  return [trimmed, suffix].filter(Boolean).join(SEPARATOR);
+  return assemble(opening, tail);
 }
 
 export interface ImagePromptInput {

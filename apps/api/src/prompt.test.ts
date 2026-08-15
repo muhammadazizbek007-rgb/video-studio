@@ -196,6 +196,31 @@ describe('buildVeoPrompt', () => {
     expect(result).toContain(DEFAULT_AUDIO_LINE);
   });
 
+  // The counter-example to the rule above. A scene is not always scenery: it can end on the
+  // one line a character has to say, and cutting its tail then throws away the whole script.
+  // A real shot was generated that way — the model got a character study, no dialogue, and
+  // supplied its own words.
+  it('gives up its own guardrails before cutting a scene that would otherwise fit', () => {
+    const line = 'Он произносит ровно одну реплику: «Красотка, стоп».';
+    const scene = `${'Девушка смотрит телевизор, экран мигает. '.repeat(36)}${line}`;
+    expect(scene.length).toBeLessThanOrEqual(1800);
+
+    const result = buildVeoPrompt({
+      prompt: scene,
+      stylePreset: 'UGC',
+      cameraMotion: 'Pan',
+      supportsAudio: true,
+      voicePrompt: 'мужчина 30 лет, низкий голос',
+    });
+
+    expect(result.length).toBeLessThanOrEqual(1800);
+    expect(result).toContain(line);
+    expect(result).not.toContain('…');
+    // The two ends of the order: ours is spent first, the voice governing the speech is last.
+    expect(result).not.toContain(PHYSICAL_CONSISTENCY_PROMPT);
+    expect(result).toContain('Narrated by: мужчина 30 лет, низкий голос');
+  });
+
   it('names the narrator when a saved voice is attached', () => {
     const built = buildVeoPrompt({
       prompt: 'девушка держит бутылку',

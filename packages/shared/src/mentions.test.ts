@@ -257,6 +257,83 @@ describe('resolveMentions', () => {
     expect(result.promptForModel).not.toContain('Reference image');
   });
 
+  describe('a description too long to fit beside the prompt', () => {
+    // What the element library actually holds: a form, one field per row, blank lines between.
+    const dossier = (name: string) =>
+      `👤 Общие данные\n\nИмя: ${name}\n\nВозраст: 25 лет\n\n${'Подробное описание внешности и характера. '.repeat(40)}`;
+
+    const laylo = element({
+      id: 'el-laylo',
+      name: 'Лайло',
+      handle: '@Лайло',
+      category: 'character',
+      description: dossier('Лайло'),
+    });
+
+    const ambassador = element({
+      id: 'el-ambassador',
+      name: 'Амбассадор',
+      handle: '@Амбассадор',
+      category: 'character',
+      description: dossier('Амбассадор'),
+    });
+
+    // The prompt that started this: a scene, then the one line to be spoken. Two dossiers of
+    // this size used to push the closing sentence past the ceiling, so what reached Veo was a
+    // character study with no script in it — and Veo wrote its own.
+    const script = `@Лайло сидит на диване и смотрит телевизор. ${'Экран мигает и изображение искажается. '.repeat(12)}На экране появляется @Амбассадор и произносит ровно одну реплику: «Красотка, стоп».`;
+
+    it('never spends the budget before the user has finished speaking', () => {
+      const result = resolveMentions({
+        prompt: script,
+        elements: [laylo, ambassador],
+        model: TEXT_ONLY_MODEL,
+      });
+
+      expect(result.promptForModel).toContain('«Красотка, стоп».');
+      // The scene's share of the 1800-character ceiling, once the guardrails are appended.
+      expect(result.promptForModel.length).toBeLessThanOrEqual(1500);
+    });
+
+    it('folds a form-shaped description into one paragraph', () => {
+      const result = resolveMentions({
+        prompt: 'Портрет @Лайло',
+        elements: [laylo],
+        model: TEXT_ONLY_MODEL,
+      });
+
+      expect(result.promptForModel).not.toMatch(/\s\s|\n/);
+    });
+
+    it('drops a description it cannot fit rather than passing a stub off as the brief', () => {
+      const result = resolveMentions({
+        prompt: `@Лайло ${'смотрит в окно и молчит. '.repeat(60)}`,
+        elements: [laylo],
+        model: TEXT_ONLY_MODEL,
+      });
+
+      expect(result.promptForModel).toContain('Лайло смотрит в окно');
+      expect(result.promptForModel).not.toContain('Возраст');
+    });
+
+    it('bounds the description in a reference header too', () => {
+      const photographed = element({
+        ...laylo,
+        imageUrl: '/media/uploads/user-1/laylo.jpg',
+      });
+
+      const result = resolveMentions({
+        prompt: `@Лайло ${'идёт по улице и оглядывается. '.repeat(30)}`,
+        elements: [photographed],
+        model: MODEL,
+      });
+
+      expect(result.assetRefs).toHaveLength(1);
+      expect(result.promptForModel).toContain('Reference image 1 shows the character Лайло');
+      expect(result.promptForModel.length).toBeLessThanOrEqual(1500);
+    });
+  });
+
   describe('the uploaded first frame', () => {
     const frame = '/media/uploads/user-1/frame.png';
 

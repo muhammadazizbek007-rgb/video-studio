@@ -19,6 +19,20 @@ import type { VideoElementCategory, VideoGenerationMode } from './types.js';
 export const MAX_ASSET_REFERENCES = 3;
 
 /**
+ * Roughly what `buildVeoPrompt` leaves for the scene once its style, camera, audio and
+ * continuity lines are appended to the 1800-character ceiling. Past this the assembled
+ * prompt loses its tail, and the tail is where someone puts the line to be spoken.
+ */
+const SCENE_BUDGET_CHARS = 1500;
+
+/**
+ * A description cut below this has stopped describing anybody — it is a name, an age and a
+ * dangling clause. Dropping it whole leaves the model with the element's name, which is
+ * honest, instead of a fragment it will treat as the full brief.
+ */
+const MIN_DESCRIPTION_CHARS = 140;
+
+/**
  * Which mention wins a scarce image slot. Characters first: a wrong face is the failure a
  * viewer notices, while a location or a prop survives being described in words.
  */
@@ -206,11 +220,48 @@ function replaceHandle(
   return result + text.slice(cursor);
 }
 
+/**
+ * A library description is written as a form — headings, blank lines, one field per row.
+ * Inside a prompt it is one paragraph, and the blank rows are budget spent on nothing.
+ */
+function flatten(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * How much of a description survives, preferring to stop on a sentence: a dossier cut
+ * mid-word reads to the model as a typo rather than as a summary.
+ */
+function shorten(text: string, limit: number): string {
+  if (limit < MIN_DESCRIPTION_CHARS) return '';
+  if (text.length <= limit) return text;
+
+  const cut = text.slice(0, limit);
+  const sentence = cut.lastIndexOf('. ');
+  if (sentence >= MIN_DESCRIPTION_CHARS) return cut.slice(0, sentence + 1);
+
+  const word = cut.lastIndexOf(' ');
+  return `${(word >= MIN_DESCRIPTION_CHARS ? cut.slice(0, word) : cut).trimEnd()}…`;
+}
+
+/**
+ * The share of the prompt each description may spend.
+ *
+ * What the user typed is the request; a description is a convenience the studio adds on
+ * their behalf. So the typed prompt is counted first and the descriptions divide whatever
+ * is left — when there is nothing left they collapse to bare names rather than push the
+ * user's own sentences past the ceiling and over the edge.
+ */
+function descriptionAllowance(prompt: string, header: string, count: number): number {
+  if (count === 0) return 0;
+  const room = SCENE_BUDGET_CHARS - prompt.length - header.length;
+  return room <= 0 ? 0 : Math.floor(room / count);
+}
+
 /** `Reference image 2 shows the location Кафе Нур — a small neon-lit café.` */
-function referenceHeader(ref: ElementRef): string {
+function referenceHeader(ref: ElementRef, description: string): string {
   const noun = CATEGORY_NOUN[ref.category];
   const subject = noun === '' ? ref.name : `${noun} ${ref.name}`;
-  const description = ref.description?.trim();
   return `Reference image ${ref.imageIndex} shows ${subject}${description ? ` — ${description}` : ''}.`;
 }
 
@@ -227,9 +278,21 @@ function buildPrompt(prompt: string, assetRefs: ElementRef[], textRefs: ElementR
   // shorter one leaves a mangled tail behind.
   const ordered = [...assetRefs, ...textRefs].sort((a, b) => b.handle.length - a.handle.length);
 
+  // Both halves spend from the same budget: a photographed element still gets a sentence of
+  // description in its header, and that sentence crowds the prompt exactly as an inlined one
+  // does. Measuring against the headers stripped of description gives the room they leave.
+  const described = ordered.filter((ref) => flatten(ref.description ?? '') !== '');
+  const bareHeader = assetRefs.map((ref) => referenceHeader(ref, '')).join(' ');
+  const allowance = descriptionAllowance(prompt, bareHeader, described.length);
+
+  const fitted = new Map<string, string>();
+  for (const ref of described) {
+    fitted.set(ref.handle, shorten(flatten(ref.description ?? ''), allowance));
+  }
+
   let body = prompt;
   for (const ref of ordered) {
-    const description = ref.description?.trim();
+    const description = fitted.get(ref.handle) ?? '';
     body = replaceHandle(body, ref.handle, (occurrence) => {
       if (ref.role === 'visual') return ref.name;
       if (occurrence === 0 && description) return `${ref.name} (${description})`;
@@ -237,7 +300,9 @@ function buildPrompt(prompt: string, assetRefs: ElementRef[], textRefs: ElementR
     });
   }
 
-  const header = assetRefs.map(referenceHeader).join(' ');
+  const header = assetRefs
+    .map((ref) => referenceHeader(ref, fitted.get(ref.handle) ?? ''))
+    .join(' ');
   if (!header) return body.trim();
   const trimmed = body.trim();
   return trimmed === '' ? header : `${header} ${trimmed}`;
