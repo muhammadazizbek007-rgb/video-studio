@@ -315,6 +315,9 @@ const ENRICHMENT_SYSTEM_PROMPT = [
   'Write in English even when the idea is in another language. Use plain prose, no lists,',
   'no headings, no markdown, no quotes around the result.',
   'Never invent dialogue and never describe on-screen text, captions or logos.',
+  'A quoted line in the idea is the script, not an idea to paraphrase: reproduce it word for',
+  'word inside its quotation marks, in the language it was written in, even though the rest',
+  'of your answer is in English. Translating or trimming one loses the take.',
   'Do not mention camera movement or visual style — those are added separately.',
   'The idea may contain @handle tokens naming the user’s saved characters, locations and',
   'props. Keep every @handle exactly as written, in the same role it had — never translate,',
@@ -370,6 +373,23 @@ function keepsEveryHandle(enriched: string, elements: ElementRef[] | undefined):
   return elements.every((ref) => lower.includes(ref.handle.toLowerCase()));
 }
 
+/** Quoted speech in the marks people actually type. Long enough to be a line, not a label. */
+const QUOTED_LINE = /«([^»]{8,})»|“([^”]{8,})”|"([^"]{8,})"/g;
+
+/**
+ * A rewrite that paraphrased the line a character has to say has thrown away the script, and
+ * the shot comes back with words nobody wrote — so the prompt as typed is kept instead.
+ *
+ * The instruction to copy quoted speech verbatim is a request; this is the part that holds.
+ */
+function keepsEveryQuotedLine(enriched: string, prompt: string): boolean {
+  for (const match of prompt.matchAll(QUOTED_LINE)) {
+    const line = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+    if (line !== '' && !enriched.includes(line)) return false;
+  }
+  return true;
+}
+
 /**
  * Enrichment is a convenience, never a gate: any failure returns the prompt as typed, so a
  * generation is still started with something usable.
@@ -399,6 +419,10 @@ export async function enrichPrompt(input: EnrichPromptInput): Promise<string> {
     if (enriched === '') return input.prompt;
     if (!keepsEveryHandle(enriched, input.elements)) {
       logger.warn('Prompt enrichment dropped an element handle; keeping the original prompt.');
+      return input.prompt;
+    }
+    if (!keepsEveryQuotedLine(enriched, input.prompt)) {
+      logger.warn('Prompt enrichment altered a quoted line; keeping the original prompt.');
       return input.prompt;
     }
     return enriched;

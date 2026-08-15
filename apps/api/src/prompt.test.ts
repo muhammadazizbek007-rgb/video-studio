@@ -460,6 +460,52 @@ describe('enrichPrompt', () => {
     ).resolves.toBe('@Luna waves');
   });
 
+  // A quoted line is the script. Losing it hands the shot to whatever the model invents.
+  describe('a line of dialogue in the idea', () => {
+    const line = 'Красотка, стоп. Кто тебя так разозлил?';
+    const idea = `@Luna смотрит в камеру и говорит: «${line}»`;
+
+    it('survives a rewrite that copied it word for word', async () => {
+      state.anthropicApiKey = 'test-key';
+      state.create.mockResolvedValue(
+        textReply(`@Luna looks into the camera in a bright room and says: «${line}»`),
+      );
+
+      await expect(
+        enrichPrompt(enrichInput({ prompt: idea, elements: [LUNA] })),
+      ).resolves.toContain(line);
+    });
+
+    it('discards a rewrite that translated it', async () => {
+      state.anthropicApiKey = 'test-key';
+      state.create.mockResolvedValue(
+        textReply('@Luna looks into the camera and says: "Stop, gorgeous. Who upset you?"'),
+      );
+
+      await expect(enrichPrompt(enrichInput({ prompt: idea, elements: [LUNA] }))).resolves.toBe(
+        idea,
+      );
+    });
+
+    it('discards a rewrite that dropped it altogether', async () => {
+      state.anthropicApiKey = 'test-key';
+      state.create.mockResolvedValue(textReply('@Luna looks into the camera and speaks warmly'));
+
+      await expect(enrichPrompt(enrichInput({ prompt: idea, elements: [LUNA] }))).resolves.toBe(
+        idea,
+      );
+    });
+
+    it('leaves a quoted word alone — a label is not a script', async () => {
+      state.anthropicApiKey = 'test-key';
+      state.create.mockResolvedValue(textReply('A bottle labelled «Dona» on a marble counter'));
+
+      await expect(enrichPrompt(enrichInput({ prompt: 'бутылка «Dona»' }))).resolves.toBe(
+        'A bottle labelled «Dona» on a marble counter',
+      );
+    });
+  });
+
   it('falls back to the prompt as typed when the SDK throws', async () => {
     state.anthropicApiKey = 'test-key';
     state.create.mockRejectedValue(new Error('rate limited'));
