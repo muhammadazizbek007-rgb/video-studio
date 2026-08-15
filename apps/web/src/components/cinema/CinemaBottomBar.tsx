@@ -31,6 +31,7 @@ import { useRef, useState } from 'react';
 import { MentionListbox } from '@/components/mentions/MentionListbox';
 import { useMentionAutocomplete } from '@/components/mentions/useMentionAutocomplete';
 import { Badge, Button, Input, Surface } from '@/components/ui';
+import { useVoices } from '@/hooks/useVoices';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
 import { ChipDropdown } from './ChipDropdown';
@@ -101,10 +102,13 @@ export function CinemaBottomBar({
   // same way it does in the studio — otherwise a storyboard is the one place where a saved
   // face silently turns back into plain text.
   const promptRef = useRef<HTMLInputElement | null>(null);
+  const voices = useVoices();
   const mentions = useMentionAutocomplete<HTMLInputElement>({
     value: prompt,
     onChange: onPromptChange,
     elements,
+    voices: voices.data ?? [],
+    voicePrefix: t('voices.inlinePrefix'),
     fieldRef: promptRef,
   });
 

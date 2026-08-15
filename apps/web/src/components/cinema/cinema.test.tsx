@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { VeoModelSpec } from '@video-studio/shared';
@@ -16,7 +17,14 @@ import { LanguageProvider } from '@/i18n/LanguageContext';
  */
 function renderUi(ui: ReactElement) {
   window.localStorage.setItem('vs.language', 'en');
-  return render(<LanguageProvider>{ui}</LanguageProvider>);
+  // The prompt field reads the saved voices, so the bar needs a query client the same way
+  // the app gives it one.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <LanguageProvider>{ui}</LanguageProvider>
+    </QueryClientProvider>,
+  );
 }
 
 interface StripOverrides {

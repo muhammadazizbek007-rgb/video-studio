@@ -1,4 +1,4 @@
-import type { ElementDto, VideoElementCategory } from '@video-studio/shared';
+import type { ElementDto, VideoElementCategory, VoiceDto } from '@video-studio/shared';
 import type { ChangeEvent, KeyboardEvent, RefObject } from 'react';
 import { useId, useMemo, useState } from 'react';
 import { markElementUsed, readElementUsage } from '@/lib/elementUsage';
@@ -25,20 +25,42 @@ export const MENTION_CATEGORY_ORDER: readonly VideoElementCategory[] = [
 
 type MentionField = HTMLTextAreaElement | HTMLInputElement;
 
+/**
+ * What `@` can offer: a saved element or a saved narrator.
+ *
+ * They resolve in opposite directions and that is the whole reason for the union. An element
+ * stays a handle — the server looks it up at generation time and attaches its photo, so the
+ * prompt must keep the token. A voice has no server-side mention step, so picking one writes
+ * its description straight into the text: what the user reads is what the model gets, and
+ * they can edit it afterwards like any other words.
+ */
+export type MentionSuggestion =
+  | { kind: 'element'; id: string; element: ElementDto }
+  | { kind: 'voice'; id: string; voice: VoiceDto };
+
 export interface MentionAutocompleteInput<T extends MentionField> {
   value: string;
   onChange: (value: string) => void;
   elements: readonly ElementDto[];
+  voices?: readonly VoiceDto[];
+  /**
+   * Prefix put in front of an inserted voice description.
+   *
+   * Load-bearing, not decoration: the server appends "no spoken narration" whenever the
+   * scene says nothing about sound, so a description that never mentions a voice would be
+   * followed by an instruction to stay silent.
+   */
+  voicePrefix?: string;
   fieldRef: RefObject<T | null>;
   maxLength?: number;
 }
 
 export interface MentionAutocomplete<T extends MentionField> {
   open: boolean;
-  suggestions: ElementDto[];
+  suggestions: MentionSuggestion[];
   activeIndex: number;
   listboxId: string;
-  insert: (element: ElementDto) => void;
+  insert: (suggestion: MentionSuggestion) => void;
   close: () => void;
   handleChange: (event: ChangeEvent<T>) => void;
   /** Returns true when the key was consumed by the popup, so the caller can stop there. */
@@ -49,6 +71,8 @@ export function useMentionAutocomplete<T extends MentionField>({
   value,
   onChange,
   elements,
+  voices = [],
+  voicePrefix = '',
   fieldRef,
   maxLength,
 }: MentionAutocompleteInput<T>): MentionAutocomplete<T> {
@@ -57,12 +81,12 @@ export function useMentionAutocomplete<T extends MentionField>({
   const [start, setStart] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const suggestions = useMemo(() => {
+  const suggestions = useMemo<MentionSuggestion[]>(() => {
     if (query === null) return [];
     const needle = query.toLowerCase();
     const usage = readElementUsage();
 
-    return elements
+    const matchedElements = elements
       .filter(
         (element) =>
           needle === '' ||
@@ -80,8 +104,18 @@ export function useMentionAutocomplete<T extends MentionField>({
         if (usedA !== usedB) return usedB.localeCompare(usedA);
         return b.createdAt.localeCompare(a.createdAt);
       })
-      .slice(0, MAX_SUGGESTIONS);
-  }, [elements, query]);
+      .slice(0, MAX_SUGGESTIONS)
+      .map((element): MentionSuggestion => ({ kind: 'element', id: element.id, element }));
+
+    // Voices come last: elements are what a prompt is usually reaching for, and a narrator
+    // is chosen once per clip rather than mentioned repeatedly.
+    const matchedVoices = voices
+      .filter((voice) => needle === '' || voice.name.toLowerCase().includes(needle))
+      .slice(0, MAX_SUGGESTIONS)
+      .map((voice): MentionSuggestion => ({ kind: 'voice', id: voice.id, voice }));
+
+    return [...matchedElements, ...matchedVoices].slice(0, MAX_SUGGESTIONS);
+  }, [elements, voices, query]);
 
   const open = query !== null && suggestions.length > 0;
 
@@ -102,19 +136,25 @@ export function useMentionAutocomplete<T extends MentionField>({
     sync(next, event.target.selectionStart ?? next.length);
   }
 
-  function insert(element: ElementDto) {
+  function insert(suggestion: MentionSuggestion) {
     const field = fieldRef.current;
     const caret = field?.selectionStart ?? value.length;
     const before = value.slice(0, start);
     const after = value.slice(caret);
-    const merged = `${before}${element.handle} ${after}`;
+
+    const written =
+      suggestion.kind === 'element'
+        ? suggestion.element.handle
+        : `${voicePrefix} ${suggestion.voice.prompt}`.trim();
+
+    const merged = `${before}${written} ${after}`;
     onChange(maxLength ? merged.slice(0, maxLength) : merged);
     setQuery(null);
-    markElementUsed(element.id);
+    if (suggestion.kind === 'element') markElementUsed(suggestion.element.id);
 
-    // The caret has to land after the inserted handle, and only after React has written the
+    // The caret has to land after the inserted text, and only after React has written the
     // new value back into the field.
-    const caretAfter = start + element.handle.length + 1;
+    const caretAfter = start + written.length + 1;
     requestAnimationFrame(() => {
       const target = fieldRef.current;
       if (!target) return;
@@ -142,10 +182,10 @@ export function useMentionAutocomplete<T extends MentionField>({
       return true;
     }
     if (event.key === 'Enter' || event.key === 'Tab') {
-      const element = suggestions[activeIndex];
-      if (!element) return false;
+      const suggestion = suggestions[activeIndex];
+      if (!suggestion) return false;
       event.preventDefault();
-      insert(element);
+      insert(suggestion);
       return true;
     }
     return false;

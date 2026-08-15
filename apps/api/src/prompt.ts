@@ -142,7 +142,10 @@ const DEFAULT_AUDIO_PROMPT =
  */
 const AUDIO_KEYWORDS = new RegExp(
   '\\b(audio|sound|music|song|voice|voice-?over|narrat|dialogue|dialog|speak|say|says|saying|whisper|shout|sings?|soundtrack|silent|silence)\\b' +
-    '|(звук|аудио|музык|песн|голос|озвуч|диалог|говор|разговор|шепч|шёпот|шепот|крич|поёт|поет|поют|саундтрек|тишин|молч|реплик)',
+    '|(звук|аудио|музык|песн|голос|озвуч|диалог|говор|разговор|шепч|шёпот|шепот|крич|поёт|поет|поют|саундтрек|тишин|молч|реплик)' +
+    // The interface speaks Uzbek too, and a scene written in it was invisible here — so
+    // a prompt describing someone talking still got "no spoken narration" appended.
+    '|(ovoz|tovush|musiqa|qo‘shiq|qoshiq|kuylay|gapir|suhbat|shivir|baqir|jimlik|sukunat|diktor)',
   'i',
 );
 

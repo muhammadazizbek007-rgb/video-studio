@@ -117,6 +117,8 @@ const ru = {
   'mentions.category.character': 'Персонажи',
   'mentions.category.location': 'Локации',
   'mentions.category.prop': 'Реквизит',
+  'mentions.category.voice': 'Голоса',
+  'voices.inlinePrefix': 'Голос за кадром:',
   'mentions.category.general': 'Общие',
 
   'prompt.enhance': 'Улучшить промпт',
@@ -562,6 +564,8 @@ const uz: Dictionary = {
   'mentions.category.character': 'Personajlar',
   'mentions.category.location': 'Lokatsiyalar',
   'mentions.category.prop': 'Rekvizit',
+  'mentions.category.voice': 'Ovozlar',
+  'voices.inlinePrefix': 'Kadr ortidagi ovoz (voice-over):',
   'mentions.category.general': 'Umumiy',
 
   'prompt.enhance': 'Promptni yaxshilash',
@@ -1004,6 +1008,8 @@ const en: Dictionary = {
   'mentions.category.character': 'Characters',
   'mentions.category.location': 'Locations',
   'mentions.category.prop': 'Props',
+  'mentions.category.voice': 'Voices',
+  'voices.inlinePrefix': 'Voice-over:',
   'mentions.category.general': 'General',
 
   'prompt.enhance': 'Enhance prompt',

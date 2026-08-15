@@ -122,6 +122,19 @@ describe('buildVeoPrompt', () => {
     }
   });
 
+  it('skips the default audio line when the scene mentions sound in Uzbek', () => {
+    const scenes = [
+      'qiz kameraga gapiradi',
+      'orqa fonda musiqa yangraydi',
+      'yigitning ovozi eshitiladi',
+      'to‘liq jimlik',
+      'diktor mahsulotni tanishtiradi',
+    ];
+    for (const prompt of scenes) {
+      expect(buildVeoPrompt({ prompt, supportsAudio: true })).toBe(assembled(prompt));
+    }
+  });
+
   it('skips the default audio line when the scene mentions sound in Russian', () => {
     const scenes = [
       'слышны разговоры',
