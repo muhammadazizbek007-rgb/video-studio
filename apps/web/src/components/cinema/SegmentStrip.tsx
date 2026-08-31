@@ -1,6 +1,8 @@
+import { classifyGenerationFailure } from '@video-studio/shared';
 import { Images, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { Spinner, Surface } from '@/components/ui';
+import { FAILURE_COPY } from '@/i18n/failureCopy';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { cn } from '@/lib/cn';
 
@@ -16,13 +18,24 @@ export interface SegmentStripProps {
   slotImages: Readonly<Record<string, string>>;
   segmentVideos: Readonly<Record<string, string>>;
   segmentStates: Readonly<Record<string, SegmentState>>;
+  /** What the server said about a failed segment, keyed the same way as the states. */
+  segmentErrors: Readonly<Record<string, string>>;
   /** Opens the media picker for this slot; Ctrl/Cmd+click asks for a clip instead. */
   onPickImage: (label: string) => void;
   onPickVideo: (segment: string) => void;
   onClearSegment: (segment: string) => void;
   onClearSlot: (label: string) => void;
   onRetrySegment: (segment: string) => void;
+  /** Opens the full account of why this segment failed. */
+  onExplainSegment: (segment: string) => void;
 }
+
+/** Both actions on a failed tile are the same small pill. */
+const PILL_CLASS = cn(
+  'rounded-full bg-surface px-2.5 py-1 text-[10px] font-semibold text-text-muted',
+  'shadow-neu-raised-sm hover:text-text-primary',
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+);
 
 interface TrashProps {
   label: string;
@@ -57,11 +70,13 @@ export function SegmentStrip({
   slotImages,
   segmentVideos,
   segmentStates,
+  segmentErrors,
   onPickImage,
   onPickVideo,
   onClearSegment,
   onClearSlot,
   onRetrySegment,
+  onExplainSegment,
 }: SegmentStripProps) {
   const { t } = useLanguage();
 
@@ -123,7 +138,7 @@ export function SegmentStrip({
               <Surface
                 elevation="raised-sm"
                 radius="md"
-                className="flex h-full flex-col items-center justify-center gap-1.5"
+                className="flex h-full flex-col items-center justify-center gap-1.5 px-3 text-center"
               >
                 <TrashButton
                   label={t('cinema.clearSegment')}
@@ -133,17 +148,30 @@ export function SegmentStrip({
                 <span className="text-[10px] font-semibold text-danger">
                   {t('cinema.segmentFailed')}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => onRetrySegment(segment)}
-                  className={cn(
-                    'rounded-full bg-surface px-2.5 py-1 text-[10px] font-semibold text-text-muted',
-                    'shadow-neu-raised-sm hover:text-text-primary',
-                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-                  )}
-                >
-                  {t('cinema.segmentRetry')}
-                </button>
+                {/* A word on its own leaves the person guessing whether they wrote something
+                    the filters refused, whether the quota ran out or whether Google was
+                    briefly down — three failures with three different answers. The cause is
+                    named here in one line; the dialog behind it carries the rest, including
+                    what the server actually replied. */}
+                <span className="line-clamp-3 max-w-[22ch] text-[10px] leading-4 text-text-muted">
+                  {t(FAILURE_COPY[classifyGenerationFailure(segmentErrors[segment])].short)}
+                </span>
+                <span className="flex flex-wrap items-center justify-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onExplainSegment(segment)}
+                    className={PILL_CLASS}
+                  >
+                    {t('cinema.segmentWhy')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRetrySegment(segment)}
+                    className={PILL_CLASS}
+                  >
+                    {t('cinema.segmentRetry')}
+                  </button>
+                </span>
               </Surface>
             ) : (
               <div className="flex h-full flex-1 gap-1.5">

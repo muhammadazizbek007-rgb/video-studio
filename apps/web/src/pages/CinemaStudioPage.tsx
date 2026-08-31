@@ -6,7 +6,7 @@ import {
   getVeoModel,
   requireVeoModel,
 } from '@video-studio/shared';
-import { X } from 'lucide-react';
+import { CircleQuestionMark, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CinemaBottomBar, type CinemaInputMode } from '@/components/cinema/CinemaBottomBar';
 import { CinemaPlayer } from '@/components/cinema/CinemaPlayer';
@@ -15,6 +15,7 @@ import { type SegmentState, SegmentStrip } from '@/components/cinema/SegmentStri
 import { MediaPicker } from '@/components/media/MediaPicker';
 import { IconButton, Spinner, Surface } from '@/components/ui';
 import { ExtendClipDialog } from '@/components/video/ExtendClipDialog';
+import { GenerationFailureDialog } from '@/components/video/GenerationFailureDialog';
 import type { VideoTool } from '@/components/video/VideoToolsMenu';
 import { VideoToolsMenu } from '@/components/video/VideoToolsMenu';
 import { useElements } from '@/hooks/useElements';
@@ -119,6 +120,8 @@ export function CinemaStudioPage() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [extendSegment, setExtendSegment] = useState<string | null>(null);
   const [extendError, setExtendError] = useState('');
+  /** The message the failure dialog is explaining; `null` keeps it closed. */
+  const [failureDetail, setFailureDetail] = useState<string | null>(null);
   /** Which slot (or which segment) the media picker is currently filling. */
   const [picking, setPicking] = useState<
     { kind: 'frame'; index: number; slot: 1 | 2 } | { kind: 'video'; index: number } | null
@@ -165,6 +168,7 @@ export function CinemaStudioPage() {
     segmentVideos,
     segmentDurations,
     segmentStates,
+    segmentErrors,
     segmentGenerationIds,
     segmentIds,
   } = useMemo(() => {
@@ -172,6 +176,7 @@ export function CinemaStudioPage() {
     const videos: Record<string, string> = {};
     const durations: Record<string, number> = {};
     const states: Record<string, SegmentState> = {};
+    const errors: Record<string, string> = {};
     const generations: Record<string, string> = {};
     const ids: string[] = [];
 
@@ -184,6 +189,7 @@ export function CinemaStudioPage() {
       if (segment.durationSeconds) durations[id] = segment.durationSeconds;
       if (segment.generationId) generations[id] = segment.generationId;
       states[id] = stateOf(segment);
+      if (segment.errorMessage) errors[id] = segment.errorMessage;
     }
 
     return {
@@ -191,6 +197,7 @@ export function CinemaStudioPage() {
       segmentVideos: videos,
       segmentDurations: durations,
       segmentStates: states,
+      segmentErrors: errors,
       segmentGenerationIds: generations,
       segmentIds: ids,
     };
@@ -527,6 +534,7 @@ export function CinemaStudioPage() {
               slotImages={slotImages}
               segmentVideos={segmentVideos}
               segmentStates={segmentStates}
+              segmentErrors={segmentErrors}
               onPickImage={(label) => {
                 const { index, slot } = parseSlotLabel(label);
                 setError('');
@@ -547,6 +555,7 @@ export function CinemaStudioPage() {
               onRetrySegment={(id) => {
                 void actions.clearSegmentGeneration(Number(id) - 1).catch(() => undefined);
               }}
+              onExplainSegment={(id) => setFailureDetail(segmentErrors[id] ?? '')}
             />
           </div>
         </>
@@ -594,6 +603,16 @@ export function CinemaStudioPage() {
           <p className={`min-w-0 flex-1 text-sm ${error ? 'text-danger' : 'text-text-muted'}`}>
             {banner}
           </p>
+          {/* The banner prints whatever the server sent, which is written for a log.
+              This turns it into the same explanation the strip offers. */}
+          {error ? (
+            <IconButton
+              size="sm"
+              label={t('generation.why')}
+              icon={<CircleQuestionMark />}
+              onClick={() => setFailureDetail(error)}
+            />
+          ) : null}
           <IconButton
             size="sm"
             label={t('common.close')}
@@ -637,6 +656,12 @@ export function CinemaStudioPage() {
         }
         busy={mode === 'Video' ? isGenerating : isImaging}
         onGenerate={handleGenerate}
+      />
+
+      <GenerationFailureDialog
+        open={failureDetail !== null}
+        errorMessage={failureDetail ?? undefined}
+        onClose={() => setFailureDetail(null)}
       />
 
       <MediaPicker

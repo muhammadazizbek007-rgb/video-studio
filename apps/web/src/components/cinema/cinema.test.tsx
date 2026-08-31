@@ -29,6 +29,7 @@ function renderUi(ui: ReactElement) {
 
 interface StripOverrides {
   segmentStates?: Record<string, SegmentState>;
+  segmentErrors?: Record<string, string>;
   slotImages?: Record<string, string>;
   segmentVideos?: Record<string, string>;
 }
@@ -42,11 +43,13 @@ function renderStrip(
     slotImages: over.slotImages ?? {},
     segmentVideos: over.segmentVideos ?? {},
     segmentStates: over.segmentStates ?? { '1': 'empty' as SegmentState },
+    segmentErrors: over.segmentErrors ?? {},
     onPickImage: vi.fn(),
     onPickVideo: vi.fn(),
     onClearSegment: vi.fn(),
     onClearSlot: vi.fn(),
     onRetrySegment: vi.fn(),
+    onExplainSegment: vi.fn(),
     ...handlers,
   };
   renderUi(<SegmentStrip {...props} />);
@@ -104,6 +107,29 @@ describe('SegmentStrip', () => {
     await user.click(screen.getByRole('button', { name: /^retry$/i }));
 
     expect(onRetrySegment).toHaveBeenCalledWith('1');
+  });
+
+  it('names the cause on a failed segment and offers the full account', async () => {
+    const user = userEvent.setup();
+    const onExplainSegment = vi.fn();
+    renderStrip(
+      { onExplainSegment },
+      {
+        segmentStates: { '1': 'failed' },
+        segmentErrors: { '1': 'Veo blocked the generation: safety filters refused the prompt' },
+      },
+    );
+
+    expect(screen.getByText(/refused by Google safety filters/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^details$/i }));
+
+    expect(onExplainSegment).toHaveBeenCalledWith('1');
+  });
+
+  it('falls back to an unidentified cause when the server stored no message', () => {
+    renderStrip({}, { segmentStates: { '1': 'failed' } });
+
+    expect(screen.getByText(/cause could not be identified/i)).toBeInTheDocument();
   });
 });
 

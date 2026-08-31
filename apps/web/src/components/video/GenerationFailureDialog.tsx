@@ -1,24 +1,7 @@
-import type { GenerationFailureCause } from '@video-studio/shared';
 import { classifyGenerationFailure, isGenerationFailureWorthRetrying } from '@video-studio/shared';
 import { Modal, Surface } from '@/components/ui';
+import { FAILURE_COPY } from '@/i18n/failureCopy';
 import { useLanguage } from '@/i18n/LanguageContext';
-import type { TranslationKey } from '@/i18n/translations';
-
-interface CauseCopy {
-  body: TranslationKey;
-  action: TranslationKey;
-}
-
-const COPY: Record<GenerationFailureCause, CauseCopy> = {
-  'reference-image': { body: 'failure.referenceImage', action: 'failure.referenceImageAction' },
-  blocked: { body: 'failure.blocked', action: 'failure.blockedAction' },
-  'empty-result': { body: 'failure.emptyResult', action: 'failure.emptyResultAction' },
-  'rate-limit': { body: 'failure.rateLimit', action: 'failure.rateLimitAction' },
-  service: { body: 'failure.service', action: 'failure.serviceAction' },
-  configuration: { body: 'failure.configuration', action: 'failure.configurationAction' },
-  unsupported: { body: 'failure.unsupported', action: 'failure.unsupportedAction' },
-  unknown: { body: 'failure.unknown', action: 'failure.unknownAction' },
-};
 
 export interface GenerationFailureDialogProps {
   open: boolean;
@@ -43,7 +26,7 @@ export function GenerationFailureDialog({
   const { t } = useLanguage();
 
   const cause = classifyGenerationFailure(errorMessage);
-  const copy = COPY[cause];
+  const copy = FAILURE_COPY[cause];
   const trimmed = errorMessage?.trim() ?? '';
 
   return (
